@@ -34,6 +34,12 @@ trajectory Jaccard **0.643 [0.634, 0.652]** vs the carry-baseline-forward refere
 R² **−0.81**, MAE **3.14 y**, biased **late by +2.2 y**; read discrimination and calibration as
 separate claims (§12).
 
+> **These numbers predate the architecture change.** The reference run was measured with the
+> previous 12/12/120, 2.10M-param shape. The config now ships **8/6/120, 1.41M params** (§9.4),
+> so expect a smaller `ckpt.pt` (~17 MB) and a shorter ② — and slightly *better* Figure-2
+> discrimination, per [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md).
+> The end-to-end run has **not** been repeated on the new shape.
+
 ### Contents
 
 **Running it** — §1 [Setup](#1-setup) · §2 [Prep the data](#2-step-1--prep-the-data) ·
@@ -150,11 +156,16 @@ Trains with next-token cross-entropy + an exponential time-to-event loss. Best c
 `out-delphi2m-dedup-mask-s42/ckpt.pt` — **the delivered model**, and the name the evaluation
 expects. Dataset, output dir and hyperparameters all come from the config; CLI flags override any.
 
-- **This config** = official Delphi-2M shape (12 layers / 120-dim / 2.1M params, 5000 iters) with
-  `ignore_tokens = 0..21` dropped from the **loss** — see §9.3 and §10.
+- **This config** = 8 layers / 6 heads / 120-dim, **1,412,160 params**, 5000 iters, with
+  `ignore_tokens = 0..21` dropped from the **loss** — see §9.3 and §10. The architecture was
+  changed away from the upstream Delphi-2M shape (12 layers / 12 heads, 2.10M params) on the
+  evidence of [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md): 1.49× smaller,
+  ~1.6× faster, and better on every downstream Figure-2 metric.
 - **Superseded:** `config/train_nacc.py` (6 layers / 384-dim / 20k iters) overfit — val loss
-  bottomed near step 5000 then rose. `config/train_delphi2m.py` is the same model *without* the
-  loss mask, kept as the ablation baseline.
+  bottomed near step 5000 then rose. `config/train_delphi2m.py` is the no-loss-mask ablation
+  baseline — but note that it, and every other `config/*.py`, still carries the **old 12/12/120**
+  shape. It is therefore now an ablation of *both* the mask and the architecture; re-run it at
+  8/6/120 before reading it as a clean mask ablation.
 - **Cohort filter (on by default):** only subjects with ≥4 distinct visits, OR 2–3 visits showing a
   NACCUDSD transition. You'll see `train 38687 -> 16262 | val 5526 -> 2349`. Disable with
   `--cohort_min_visits=1`. **This filter also defines Figure 2's `matched` cohort**, so changing it
@@ -491,8 +502,8 @@ Delphi.generate(idx, age, max_new_tokens, max_age, no_repeat=True, termination_t
    `λ = Σ_k exp(logit_k)`; `E[Δt] ≈ 1/λ`. **Units: days.**
 
 Config baked into the checkpoint's `model_args` (read back by `load_model`):
-`block_size=96, vocab_size=111, n_layer=12, n_head=12, n_embd=120, t_min=30.4375 (≈1 month),
-mask_ties=True, ignore_tokens=[0..21]`. **2.10M params.**
+`block_size=96, vocab_size=111, n_layer=8, n_head=6, n_embd=120, t_min=30.4375 (≈1 month),
+mask_ties=True, ignore_tokens=[0..21]`. **1,412,160 params.**
 
 ### 9.2 Age encoding, and same-visit attention masking
 
@@ -525,7 +536,7 @@ Its consequence is the single most important thing to know about this model → 
 | Parameter | Value | |
 |---|---|---|
 | Vocabulary / block size | 111 / 96 | |
-| Layers / heads / embedding | 12 / 12 / 120 | ≈2.1M params — official Delphi-2M shape |
+| Layers / heads / embedding | 8 / 6 / 120 | 1,412,160 params, head_dim 20 — chosen in `experiments/capacity`, **not** inherited |
 | Dropout / token dropout | 0.0 / 0.0 | |
 | `ignore_tokens` | `0..21` | §9.3 |
 | `t_min` | `365.25/12` (~1 month) | **do not lower** — see below |

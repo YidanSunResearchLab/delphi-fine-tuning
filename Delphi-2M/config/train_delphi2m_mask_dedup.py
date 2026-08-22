@@ -6,8 +6,11 @@
 #     out-delphi2m-keepall-mask-s42     keep-all,          mask 0-21
 #     THIS ->                   dedup(keep-trans), mask 0-21
 #
-# Identical to config/train_delphi2m.py (2.1M params, 5000 iters, seed 42, SAME
-# nacc-dedup-s42 dedup dataset) EXCEPT ignore_tokens: the 22 static/background/placeholder
+# Same data, schedule and seed as config/train_delphi2m.py (5000 iters, seed 42, SAME
+# nacc-dedup-s42 dedup dataset). Differs in TWO places: the architecture (8L/6H/120d, not
+# the upstream 12L/12H/120d -- see the block below) and ignore_tokens.
+#
+# ignore_tokens: the 22 static/background/placeholder
 # tokens (0=pad, 1=no-event, 2-3=sex, 4-6=BMI, 7-9=smoking, 10-12=alcohol,
 # 13-15=education, 16-21=APOE) are dropped from the LOSS (not predicted, not scored)
 # but stay in the input stream and are still attended to. Delphi-faithful: stops the
@@ -25,9 +28,26 @@ t_min = 365.25 / 12
 # --- ids 0..21: padding/no-event + all static & background tokens (incl. APOE 16-21) ---
 ignore_tokens = list(range(22))
 
-# --- architecture: official Delphi-2M (2.1M params on our 111-token vocab) ---
-n_layer = 12
-n_head = 12
+# --- architecture: 8L / 6H / 120d = 1,412,160 params, head_dim 20 ---
+#
+# WAS 12/12/120 = 2,104,320 params, copied verbatim from the upstream Delphi-2M demo config
+# (vocab 1270, cohort ~100x larger). It was never chosen for THIS dataset. Changed on the
+# evidence of experiments/capacity -- 6 shapes x 3 seeds, 48 runs; see its RESULTS.md:
+#
+#   * n_head 12 -> 6 (head_dim 10 -> 20) is free: identical parameter count, identical
+#     speed, and 5/5 downstream Figure-2 metrics improve by more than the seed sd.
+#     Validation loss cannot see it at all (delta -0.0043 against a pooled sd of 0.0046).
+#   * n_layer 12 -> 8 at n_embd 120 is the best downstream arm of the six: median AUC
+#     0.6942 +/- 0.0098 vs the delivered 0.6532 +/- 0.0117, Dementia@10y 0.8677 +/- 0.0021
+#     vs 0.8433 +/- 0.0059 -- at 1.49x fewer params and ~1.6x faster (135 vs 217 ms/iter
+#     on the sweep's CPU nodes).
+#
+# Do NOT shrink further on the strength of validation loss. The 0.31M arm (6/4/64) has the
+# LOWEST val loss of all six and does not carry that win downstream -- 73% of the reported
+# val loss is loss_dt, which is inert across the whole 6.9x capacity range. Rank
+# architectures on Figure-2 metrics with >=3 seeds, never on val loss (RESULTS.md finding 2).
+n_layer = 8
+n_head = 6
 n_embd = 120
 
 # --- optimization: official Delphi-2M demo schedule ---
