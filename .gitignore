@@ -1,0 +1,56 @@
+# ── Job output logs (not committed) ───────────────────────────────────────────
+logs/*.out
+logs/*.err
+
+# ── Sensitive / PHI data (never commit) ───────────────────────────────────────
+.env
+investigator_nacc*.csv
+
+# ── Large binary data files ────────────────────────────────────────────────────
+Delphi-2M/data/nacc/train.bin
+Delphi-2M/data/nacc/val.bin
+
+# ── Model checkpoints ─────────────────────────────────────────────────────────
+Delphi-2M/out-nacc/ckpt.pt
+*.pt
+*.pth
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.nbconvert/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── AD pipeline: NACC patient data + derived artifacts (NEVER COMMIT) ─────────
+# Raw export + ID linkage (PHI / re-identification risk):
+**/investigator_nacc*.csv
+**/nacc_pidmap.csv
+# All tokenized event streams, anywhere (tokenizer output + splits):
+**/*.bin
+Delphi-2M/data/nacc-*/
+# Run outputs (all regenerable from scripts — NEVER COMMIT):
+#   out_ad/ = tokenizer + split output (bins, labels.csv, pidmap); out-*/ = checkpoints + eval figures
+Delphi-2M/out_ad/
+Delphi-2M/out-*/
+Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
+*.pt
+*.pth
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+
+data/

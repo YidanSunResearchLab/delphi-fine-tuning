@@ -1,0 +1,11 @@
+# Run outputs -- regenerable, and the checkpoints are large. Never committed.
+runs/
+evaltrees/
+# Analysis artifacts. NOTE: the repo-root .gitignore already excludes *.png and *.pdf
+# globally (it is a code-only repository), so the figures analyze.py produces are not
+# committed either way. The CSV/markdown are listed here for the same reason -- they are
+# outputs of collect.py/analyze.py and are rebuilt from runs/ in seconds.
+results/*.csv
+results/*.png
+results/*.md
+results/eval/

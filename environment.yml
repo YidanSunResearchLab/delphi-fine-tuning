@@ -1,0 +1,30 @@
+name: ad-projection
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - openpyxl
+  - jupyter
+  - ipykernel
+  - wandb
+  - pyyaml
+  - pip
+  - pip:
+    # CUDA 12.6 wheels (Linux GPU cluster). For CPU-only or a different CUDA,
+    # swap the index URL (e.g. .../whl/cpu or .../whl/cu121).
+    - torch --extra-index-url https://download.pytorch.org/whl/cu126
+    # Evaluation-only: umap-learn powers Figure 2 panel d (embedding UMAP). Without it panels
+    # a/b/c still render and run_figure2.sh warns; panel d is reported as failed.
+    # (`lifelines` was also needed until 2026-07-31, by the since-deleted evaluation.py.)
+    - umap-learn
+
+# NOTE: paths / split / vocab_size are NOT set via env vars — they live in
+# make_dataset.py, make_split_ad.py, and config/train_nacc.py. Pass the raw CSV
+# with `python make_dataset.py --csv /path/to/investigator_nacc72.csv`.
