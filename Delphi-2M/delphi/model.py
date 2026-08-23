@@ -155,6 +155,15 @@ class DelphiConfig:
     # produces the same model the checkpoint was trained with.
     mask_ties: bool = True
     ignore_tokens: list = field(default_factory=lambda: [0])
+    # time_head=False -- the delivered parameterisation, and what every existing checkpoint
+    # was trained with. The model then has exactly ONE output projection (`lm_head`): "which
+    # event" is softmax(logits) and "when" is logsumexp(logits), a single scalar that is a
+    # deterministic function of the same logits and has no parameters of its own.
+    # time_head=True adds an independent scalar projection that predicts the log-intensity
+    # directly. See Delphi.forward for the exact semantics, and experiments/time_head/ for
+    # why (loss_dt is 73% of validation loss and moved by 0.10% of itself over a 6.9x
+    # parameter range -- the capacity sweep's finding 2).
+    time_head: bool = False
 
 
 def load_checkpoint(ckpt_path, device="cpu", expect_vocab_size=None,
@@ -238,6 +247,54 @@ class Delphi(nn.Module):
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
+        # The independent log-intensity head, absent unless asked for.
+        #
+        # Built and initialised AFTER the block above, and that ordering is load-bearing.
+        # nn.Linear.__init__ draws from the global RNG (kaiming_uniform_) and those draws are
+        # then thrown away by self.apply(_init_weights), so what actually sets every weight in
+        # this model is the RNG STATE AT THE START OF apply(). Creating this head any earlier
+        # shifts that state, and a time_head=True model would share no weight at all with its
+        # time_head=False control at the same seed -- measured: every tensor differed. Built
+        # here instead, the two models are bit-identical on every shared parameter, and
+        # train.py re-seeds the batch RNG before the training loop, so they also see the same
+        # batches. That is what makes the pair a controlled comparison of one added head
+        # rather than two unrelated runs. verify.py checks it.
+        #
+        # The weight init is the plain one, normal_(0, 0.02). The BIAS is warm-started to
+        # log(vocab_size), and that is not cosmetic -- it is what puts the two arms in the same
+        # floor regime at step 0.
+        #
+        # loss_dt reaches the trunk through the floored log-intensity, whose derivative
+        # w.r.t. the raw one is exp(-lse) / (exp(-lse) + t_min). The control starts at
+        # lse = logsumexp of vocab_size near-zero logits = log(vocab_size), so exp(-lse) ~ 1/111,
+        # tiny next to t_min = 365.25/12 = 30.44: it starts DEEPLY saturated and loss_dt is
+        # nearly invisible to it (this is the saturation grad_balance.py measures). A zero bias
+        # would put log lambda ~ 0, i.e. exp(-lse) = 1, which is ~111x further from the floor.
+        # Measured at the arm config (8L/6H/120d, vocab 111, t_min = 365.25/12), at init:
+        #
+        #   arm                 floor-attn   loss_dt    ||g_dt(trunk)|| / ||g_ce(trunk)||
+        #   control             2.79e-04     11.9101    0.0034     <- dt contributes ~nothing
+        #   time_head, bias=0   3.71e-02     11.6347    3.8149     <- dt DOMINATES
+        #   time_head, bias=logV 3.47e-04    11.9096    0.0373
+        #
+        # With a zero bias the arms are not running the same optimisation at step 0 -- one is
+        # effectively CE-only, the other dt-dominated, a ~1100x gap in the timing gradient --
+        # and any loss_dt win would be confounded with simply having started outside the floor.
+        # log(vocab_size) starts the head at the control's own intensity, so loss_dt starts at
+        # the same value in the same floor regime. The residual ~10x is structural: the
+        # control's dt gradient reaches x as a softmax-weighted average over vocab_size lm_head
+        # rows, which largely cancels, while the head's goes through a single row. That
+        # difference IS the treatment, and it is what the arm exists to measure.
+        #
+        # The bias fill draws no RNG, so the ordering argument above is unaffected.
+        if config.time_head:
+            self.time_head = nn.Linear(config.n_embd, 1, bias=True)
+            self._init_weights(self.time_head)
+            with torch.no_grad():
+                self.time_head.bias.fill_(math.log(config.vocab_size))
+        else:
+            self.time_head = None
+
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
@@ -291,10 +348,31 @@ class Delphi(nn.Module):
         x = self.transformer.ln_f(x)
         att = torch.stack(att)
 
-        if targets is not None:
-            # next token cross entropy loss, padding masked
+        # ---- the output head(s) -------------------------------------------------------
+        # time_head=False: unchanged. `logits` is the raw lm_head projection and the loss
+        # below reads the intensity off it as logsumexp(logits).
+        #
+        # time_head=True: `logits` becomes the PER-TOKEN LOG-RATES of the same
+        # competing-exponential model, log_softmax(lm_head(x)) + log_lambda. Two exact
+        # identities make that a drop-in replacement for every consumer:
+        #   softmax(logits)   is unchanged -- softmax ignores a per-position constant -- so
+        #                     loss_ce, ad_engine.next_event_probs, the panels' state
+        #                     probabilities and generate()'s sampled token are all identical
+        #                     functions of lm_head as before;
+        #   logsumexp(logits) == log_lambda exactly, because logsumexp(log_softmax(.)) == 0,
+        #                     so generate()'s inverse-CDF sampling picks up the new head with
+        #                     no code change and with the right semantics: rate_k = lambda*p_k,
+        #                     total rate lambda, min over k distributed Exp(lambda).
+        # What changes is only WHERE the intensity comes from -- its own projection, trained
+        # by loss_dt alone, instead of the sum of the token logits.
+        if self.time_head is not None:
+            log_lambda = self.time_head(x).squeeze(-1)                          # (b, t)
+            logits = F.log_softmax(self.lm_head(x), dim=-1) + log_lambda.unsqueeze(-1)
+        else:
+            log_lambda = None
             logits = self.lm_head(x)
 
+        if targets is not None:
             # if we are given some desired targets also calculate the loss
             ignored_tokens = self.config.ignore_tokens.copy()
             if validation_loss_mode:
@@ -311,7 +389,16 @@ class Delphi(nn.Module):
             loss_ce = F.cross_entropy(logits.reshape(-1, logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
             
             # time to next event loss, padding masked
-            lse = torch.logsumexp(logits,-1) ## More forgiving than using torch.max() for the most likely next event
+            #
+            # With time_head the intensity is read straight off the head, NOT as
+            # logsumexp of the rate-logits above. The two differ by exactly one thing:
+            # validation_loss_mode has just written -inf into the ignored columns, so
+            # logsumexp would return log(lambda * P(content)) -- lambda deflated by the
+            # content probability mass, a quantity the head never sees in training (training
+            # mode applies no such mask). Reading log_lambda directly means the head is
+            # scored on the same definition it is trained on, in train and val alike.
+            # The single-head path keeps logsumexp exactly as delivered.
+            lse = log_lambda if log_lambda is not None else torch.logsumexp(logits,-1) ## More forgiving than using torch.max() for the most likely next event
             # GUARD 3 (numerical hygiene): bound the log-intensity before exp(). Prevents both
             # exp(-lse) underflowing to 0 (-> log(0) = -inf -> NaN loss_dt, the t_min=0 failure)
             # and exp(lse)*dt overflowing fp32. Never active in healthy training (lse stays O(1));
@@ -320,8 +407,14 @@ class Delphi(nn.Module):
             lse = - torch.log(torch.exp(-lse) + self.config.t_min)
             dt = torch.clamp(targets_age - age, min=1.0)
             if self.config.mask_ties:
+                # squeeze(1), not squeeze((1, 2)): the indices are (b, 1, t) and only the
+                # head axis is meant to go. squeeze((1, 2)) also dropped the TIME axis when
+                # t == 1, giving (b,) against a (b, 1) dt -- "Index tensor must have the same
+                # number of dimensions as input tensor". Identical for every t > 1, so no
+                # trained model is affected; it only stops a 1-token sequence from crashing
+                # (which is what tests/golden.py's `single_token` case does).
                 dt = torch.gather(dt, -1, (attn_mask * torch.arange(0, idx.size(1), device=device, dtype=torch.float32)
-                                           .view(1, 1, 1, -1)).max(-1).indices.squeeze((1, 2)))  # Use time from last untied token
+                                           .view(1, 1, 1, -1)).max(-1).indices.squeeze(1))  # Use time from last untied token
             ldt = - torch.log(dt + self.config.t_min).view(-1)
             
             loss_dt = -(lse.reshape(-1) - torch.exp(lse.reshape(-1) - ldt.reshape(-1))) ## Exponential log-likelihood (real statistics, TM)
@@ -333,8 +426,10 @@ class Delphi(nn.Module):
             
             #loss += 5.0 * F.mse_loss(lse.view(-1)*(ldt != 0), ldt) ## Adds MSE for log time difference to next observed event
         else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, :, :]) # note: using list [-1] to preserve the time dim
+            # the head was already applied above, over every position (the "mini-optimization"
+            # this branch used to describe -- projecting only the last position -- was never
+            # actually done: the slice was x[:, :, :], the whole tensor. generate() needs the
+            # last row only, but figure2's scoring reads every row, so all of them stay.)
             loss = None
 
         return logits, loss, att
@@ -389,6 +484,16 @@ class Delphi(nn.Module):
         # so let's manually remove 'lm_head.weight' from decay set. This will include
         # this tensor into optimization via transformer.wte.weight only, and not decayed.
         decay.remove('lm_head.weight')
+
+        # Same reasoning, applied to the other arm's intensity parameters. The control's
+        # intensity is logsumexp(lm_head(x)); lm_head.weight is tied to transformer.wte.weight,
+        # which is blacklisted, so the control's intensity is NOT weight-decayed. Leaving
+        # time_head.weight in the decay bucket would penalise the treatment's intensity and not
+        # the control's -- and decay pulls that weight to 0, i.e. pulls log lambda toward a
+        # constant, which is precisely the null the arm is testing against. Keep both undecayed.
+        if self.time_head is not None:
+            decay.discard('time_head.weight')
+            no_decay.add('time_head.weight')
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}

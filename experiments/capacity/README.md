@@ -3,6 +3,11 @@
 Self-contained experiment. It does not modify anything under `Delphi-2M/`; it drives the
 existing `training/train.py` and `figure2/` with generated configs and reads their stdout.
 
+> Since this sweep ran, `Delphi-2M/` has gained one opt-in flag — `time_head`, default
+> `False` — for the follow-up in `experiments/time_head/`. At the default it is bit-identical
+> to the code these runs used (`tests/golden.py`: 29/29 arrays at `atol=0`), so every arm here
+> remains reproducible exactly as written.
+
 ## The question
 
 The delivered model `out-delphi2m-dedup-mask-s42` is **12L / 12H / 120d = 2,104,320
