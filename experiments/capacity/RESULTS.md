@@ -2,7 +2,11 @@
 
 48 runs on RIS: 18 arms at the 5000-iter schedule (6 shapes × 3 seeds), 12 at a 15000-iter
 schedule, 18 downstream Figure-2 evaluations (6 shapes × 3 seeds). Nothing under `Delphi-2M/`
-was modified.
+was modified to produce them.
+
+> Since then `Delphi-2M/` has gained one opt-in flag — `time_head`, default `False` — for the
+> follow-up to recommendation 4 below. At the default it is bit-identical to the code these
+> runs used (`tests/golden.py`: 29/29 arrays at `atol=0`); these numbers stand as measured.
 
 ## The question
 
@@ -124,6 +128,9 @@ The 5000-iter ranking stands; a longer schedule just holds the LR high for longe
 4. **The real target is `loss_dt`, not the architecture.** 73% of the loss, immovable across
    a 6.9× capacity range. Whatever is limiting it — the `t_min` floor, the competing-exponential
    assumption, the no-event token rate — will matter more than any reshaping of the trunk.
+   *Taken up in `experiments/time_head/`, which tests the fourth candidate this sweep could not
+   see: that "when" had no parameters of its own at all. `time_head_probe.py` here is the
+   evidence that motivated it.*
 
 ## Caveats
 

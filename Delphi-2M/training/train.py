@@ -65,6 +65,10 @@ compile = False  # use PyTorch 2.0 to compile the model to be faster
 token_dropout = 0.0
 t_min = 365.25 / 12.  # ~1-month floor; MUST be > 0 (t_min=0 -> unbounded intensity -> NaN loss_dt)
 mask_ties = True
+# time_head=False reproduces every delivered run: one output projection, and the
+# time-to-next-event intensity read off it as logsumexp(logits). True gives the timing
+# objective its own scalar head (see delphi/model.py and experiments/time_head/).
+time_head = False
 ignore_tokens = [0]
 data_fraction = 1.0
 # training cohort filter: keep a subject if it has >= cohort_min_visits distinct visits,
@@ -148,7 +152,8 @@ print(f"found vocab_size = {vocab_size}")
 # model init
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=vocab_size, dropout=dropout, token_dropout=token_dropout, t_min=t_min,
-                  mask_ties=mask_ties, ignore_tokens=ignore_tokens)  # start with model_args from command line
+                  mask_ties=mask_ties, ignore_tokens=ignore_tokens,
+                  time_head=time_head)  # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -166,6 +171,10 @@ elif init_from == 'resume':
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
+    # Also architectural: it adds a parameter tensor, so a resume that disagreed with the
+    # checkpoint would fail in load_state_dict. Checkpoints written before the head existed
+    # have no such key, and absent means the single-head model.
+    model_args['time_head'] = checkpoint_model_args.get('time_head', False)
     # create the model
     gptconf = DelphiConfig(**model_args)
     model = Delphi(gptconf)

@@ -44,7 +44,10 @@ GOLDEN = os.path.join(HERE, "golden.npz")
 # These are SYNTHETIC. They do not need to be clinically realistic -- they only need to be
 # FIXED, and to collectively exercise every branch in Delphi.forward().
 CASES = {
-    # smallest possible input: catches shape/indexing bugs
+    # smallest possible input: catches shape/indexing bugs. Its two LOSSES are NaN and are
+    # meant to be: with one token the only target is the shifted-in padding 0, which
+    # ignore_tokens drops, so both losses average over an empty selection. The logits and
+    # the (b, 1) gather path are still worth pinning -- squeeze((1, 2)) used to crash here.
     "single_token": dict(tokens=[3], ages=[0.0]),
 
     # strictly increasing ages: no same-visit ties, the easy path
@@ -154,7 +157,11 @@ def cmd_check(args):
             d = float(np.abs(a.astype(np.int64) - b.astype(np.int64)).max()) if a.size else 0.0
             ok = d == 0
         else:
-            d = float(np.abs(a - b).max()) if a.size else 0.0
+            # NaN in BOTH is "unchanged", not a failure. `single_token`'s two losses are NaN
+            # by construction (see CASES) and nan != nan, so a naive max|a-b| would report a
+            # permanent FAIL and make this harness useless. NaN in only one side still fails,
+            # which is the case that matters: a change that introduced a NaN.
+            d = float(np.where(np.isnan(a) & np.isnan(b), 0.0, np.abs(a - b)).max()) if a.size else 0.0
             ok = d <= args.atol
         print(f"{n:34s} {d:14.3e}   {'PASS' if ok else 'FAIL'}")
         if not ok:
