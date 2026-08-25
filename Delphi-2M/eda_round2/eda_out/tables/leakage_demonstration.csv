@@ -1,0 +1,6 @@
+feature,oof_auc_y_ad_next,verdict
+cogng_demog_slope (LME random slope over ALL follow-up),0.8086,LEAK -- fitted on the future of the same person
+cogn_global at the current visit (legitimate),0.9133,"legitimate, but see the construct-validity note below"
+age at the current visit (legitimate),0.7203,legitimate
+braaksc (autopsy),0.5985,LEAK -- only exists after death
+gpath (autopsy),0.5984,LEAK -- only exists after death

@@ -1,0 +1,8 @@
+stat,measurements_per_visit
+min,0.0
+P25,15.0
+median,19.0
+mean,18.11
+P75,22.0
+P95,23.0
+max,24.0

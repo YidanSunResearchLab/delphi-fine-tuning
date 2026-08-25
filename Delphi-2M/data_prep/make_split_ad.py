@@ -21,18 +21,26 @@ restore that rule you would need to re-add cohort_stats_ad.py as well as these o
 import numpy as np, os, argparse, shutil
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Delphi-2M/ (package root)
-SRC   = os.path.join(HERE, "out_ad", "nacc_all.bin")
-LBL   = os.path.join(HERE, "out_ad", "labels.csv")
 RATIO = (0.70, 0.10, 0.20)   # train, val, test
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--seed", type=int, default=42)
+# --dir / --prefix let the SAME by-patient split logic serve a second tokenised source
+# (out_radc/radc_all.bin, from data_prep/tokenize_radc.py) without a forked copy of this
+# file. Defaults reproduce the original NACC behaviour byte-for-byte.
+ap.add_argument("--dir", default="out_ad",
+                help="subdir of Delphi-2M/ holding <prefix>_all.bin + labels.csv")
+ap.add_argument("--prefix", default="nacc",
+                help="dataset prefix: reads <dir>/<prefix>_all.bin, writes <dir>/<prefix>-dedup-s<seed>/")
 args = ap.parse_args()
+
+SRC = os.path.join(HERE, args.dir, f"{args.prefix}_all.bin")
+LBL = os.path.join(HERE, args.dir, "labels.csv")
 
 d = np.fromfile(SRC, dtype=np.uint32).reshape(-1, 3)
 # "dedup" = the keep-transitions tokenisation this pipeline produces. The name is explicit so a
 # differently-tokenised build can never silently overwrite it.
-OUT = os.path.join(HERE, "out_ad", f"nacc-dedup-s{args.seed}")
+OUT = os.path.join(HERE, args.dir, f"{args.prefix}-dedup-s{args.seed}")
 
 os.makedirs(OUT, exist_ok=True)
 pids = np.unique(d[:, 0])

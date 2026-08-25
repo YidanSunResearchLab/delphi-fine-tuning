@@ -49,12 +49,22 @@ CAP = os.path.join(os.path.dirname(HERE), "capacity")
 sys.path.insert(0, HERE)
 sys.path.insert(0, CAP)
 
-from arms import ARMS, SEEDS, control                     # noqa: E402
+from arms import ARMS, SEEDS, control, overrides         # noqa: E402
 from collect import parse_log                             # noqa: E402  (capacity's log parser)
 
 # The capacity sweep's measured cross-shape spread in loss_dt, over a 6.9x parameter range.
 # The yardstick every delta here is quoted against. Source: RESULTS.md finding 2.
 CAP_DT_SPREAD = 0.0071
+
+# Arms that change dt_target change WHAT loss_dt is computed against, so its value -- and the
+# total val loss that contains it -- is NOT comparable to the control's. The size of the
+# artefact is known: loss_dt is minimised at 1 + log E[dt], and dt_ablation.py measured the
+# target's mean dropping from 2.648 y to 1.488 y, so the ACHIEVABLE loss_dt falls by
+# log(2.648/1.488) = 0.58 nats on its own, with no change in model quality. Any val-loss delta
+# smaller than that says nothing. For these arms the answer has to come from the downstream
+# timing metrics, which are computed from trajectories and are objective-independent.
+OBJECTIVE_CHANGING = {"dt_target"}
+DT_TARGET_ARTEFACT = 0.58
 
 
 def best_from_log(path):
@@ -181,91 +191,123 @@ def main():
     df.to_csv(os.path.join(a.out, "paired.csv"), index=False)
 
     # ------------------------------------------------------------------ the write-up
-    L = ["# Time head — paired against the capacity sweep's own runs", "",
-         f"{len(df)} pairs ({df['arm'].nunique()} arms x {df['seed'].nunique()} seeds). Each row "
-         "is one time-head run minus its control at the SAME seed, and the two members of a pair "
-         "start from bit-identical trunk weights and see the same batch stream — so `d` is a "
-         "within-pair difference, not a difference of means.", ""]
+    # PER ARM, never pooled. The first version averaged every arm into one table, which mixed
+    # two different experiments (a new head vs a fixed objective) into a single meaningless
+    # delta. Arms answer different questions; they get different tables.
+    L = ["# Paired against the capacity sweep's own runs", "",
+         f"{len(df)} pairs across {df['arm'].nunique()} arm(s). Every row is one arm run minus "
+         "its control at the SAME seed; the two members of a pair start from bit-identical "
+         "trunk weights and see the same batch stream, so `d` is a within-pair difference, not "
+         "a difference of means. Arms are reported separately.", ""]
 
-    def section(title, cols, nd=4, note=None, lower_is_better=True):
-        block = [f"## {title}", ""]
+    def section(sub, sdf, title, cols, nd=4, note=None, lower_is_better=True):
+        block = [f"### {title}", ""]
         if note:
             block += [note, ""]
         block += ["| metric | arm mean | control mean | d (mean) | sd(d) | pairs better |",
                   "|---|---:|---:|---:|---:|---|"]
         any_row = False
         for col, label in cols:
-            if f"d_{col}" not in df.columns:
+            if f"d_{col}" not in sdf.columns:
                 continue
-            st = paired_table(rows, col)
+            st = paired_table(sub, col)
             if st is None:
                 continue
             any_row = True
             better = st["neg"] if lower_is_better else st["pos"]
-            block.append(f"| {label} | {fmt(df[col].mean(), nd)} | {fmt(df[f'c_{col}'].mean(), nd)} "
+            block.append(f"| {label} | {fmt(sdf[col].mean(), nd)} | {fmt(sdf[f'c_{col}'].mean(), nd)} "
                          f"| **{st['mean']:+.{nd}f}** | {fmt(st['sd'], nd)} | {better}/{st['n']} |")
         return block + [""] if any_row else []
 
-    L += section("1. The term the head exists to move",
-                 [("loss_dt", "`loss_dt` (when)"), ("loss_ce", "`loss_ce` (which event)"),
-                  ("best_val", "total val loss"), ("best_iter", "iter of the best checkpoint")],
-                 note=f"Yardstick: the capacity sweep moved `loss_dt` by **{CAP_DT_SPREAD:.4f}** "
-                      f"nats across a 6.9x parameter range (its finding 2). A `d` at or beyond "
-                      f"that, consistent in sign across seeds, is the result this arm was built "
-                      f"to find. `best_iter` is reported because a term that finally responds to "
-                      f"optimisation should also move where the bottom sits.")
+    for arm in sorted(df["arm"].unique()):
+        sub = [r for r in rows if r["arm"] == arm]
+        sdf = df[df["arm"] == arm]
+        ov = overrides(arm)
+        changed = sorted(set(ov) & OBJECTIVE_CHANGING)
+        L += ["---", "", f"## {arm}  (control `{sdf['control'].iloc[0]}`, "
+              f"{len(sdf)} seeds)", "",
+              "Sets " + ", ".join(f"`{k} = {v}`" for k, v in ov.items()) + ".", ""]
+        if changed:
+            L += [f"> **Validation loss is NOT comparable for this arm.** It changes "
+                  f"`{', '.join(changed)}`, i.e. WHAT `loss_dt` is measured against. `loss_dt` is "
+                  f"minimised at `1 + log E[dt]`, and `dt_ablation.py` measured the target's mean "
+                  f"falling from 2.648 y to 1.488 y, so the *achievable* `loss_dt` drops by "
+                  f"`log(2.648/1.488)` = **{DT_TARGET_ARTEFACT:.2f} nats** with no change in model "
+                  f"quality. A val-loss delta smaller than that says nothing about quality — if "
+                  f"anything, less than 0.58 means the model fits its own (easier) target WORSE "
+                  f"than the control fit its harder one, which is expected once the 73.6% of "
+                  f"positions that were being handed a subtraction they could read off their own "
+                  f"input stop being free. Read section 2, not section 1.", ""]
+        L += section(sub, sdf, "1. The objective terms",
+                     [("loss_dt", "`loss_dt` (when)"), ("loss_ce", "`loss_ce` (which event)"),
+                      ("best_val", "total val loss"),
+                      ("best_iter", "iter of the best checkpoint")],
+                     note=("Bookkeeping only for this arm — see the warning above."
+                           if changed else
+                           f"Yardstick: the capacity sweep moved `loss_dt` by "
+                           f"**{CAP_DT_SPREAD:.4f}** nats across a 6.9x parameter range (its "
+                           f"finding 2). A `d` at or beyond that, consistent in sign across "
+                           f"seeds, is a result."))
 
-    tcols = [("timing_mae_y", "transition-time MAE (years)"),
-             ("timing_bias_y", "transition-time bias (years)"),
-             ("timing_spearman", "transition-time Spearman"),
-             ("calib_err", "mean calibration error")]
-    L += section("2. Downstream timing (test split, cohort-matched)", tcols,
-                 note="`a/transition_time` over ~2.4k observed transitions. This is the number "
-                      "the head is supposed to improve if loss_dt means anything clinically. "
-                      "Lower is better for MAE; bias closer to 0 is better; Spearman higher is "
-                      "better (read its sign column as inverted).")
+        L += section(sub, sdf, "2. Downstream timing — THE headline",
+                     [("timing_mae_y", "transition-time MAE (years)"),
+                      ("timing_bias_y", "transition-time bias (years)"),
+                      ("timing_spearman", "transition-time Spearman"),
+                      ("calib_err", "mean calibration error")],
+                     note="`a/transition_time` over ~2.4k observed transitions, from sampled "
+                          "trajectories — objective-independent, so comparable for every arm. "
+                          "The control's bias is **+2.6 y** (events predicted too late) and its "
+                          "R2 is negative, i.e. worse than predicting the mean. Lower MAE is "
+                          "better; bias closer to 0 is better; Spearman higher is better (read "
+                          "its sign column inverted).")
 
-    mae_cols = sorted(c[4:-1] for c in df.columns if c.startswith("mae[") and c.endswith("]"))
-    if mae_cols:
-        L += ["## 2b. Timing MAE by outcome and horizon, against the naive baseline", "",
-              "`naive` is figure2's carry-forward-style timing baseline. The delivered model is "
-              "WORSE than naive on the near-term buckets, so watch whether the head narrows that "
-              "gap rather than only whether it beats the control.", "",
-              "| outcome / horizon | control MAE | arm MAE | d | naive |", "|---|---:|---:|---:|---:|"]
-        for k in mae_cols:
-            col, nv = f"mae[{k}]", f"naive[{k}]"
-            if f"d_{col}" not in df.columns:
-                continue
-            st = paired_table(rows, col)
-            L.append(f"| {k} | {fmt(df[f'c_{col}'].mean(), 3)} | {fmt(df[col].mean(), 3)} | "
-                     f"**{st['mean']:+.3f}** | {fmt(df[nv].mean(), 3) if nv in df else '--'} |")
+        mae_cols = sorted(c[4:-1] for c in sdf.columns
+                          if c.startswith("mae[") and c.endswith("]"))
+        if mae_cols and f"d_mae[{mae_cols[0]}]" in sdf.columns:
+            L += ["### 2b. Timing MAE by outcome and horizon", "",
+                  "`naive` = predict one constant (the median observed time) for everyone. "
+                  "Per-bucket it is rigged in the constant's favour, since the buckets are cut "
+                  "on the observed time; the aggregate is the fair comparison.", "",
+                  "| outcome / horizon | control MAE | arm MAE | d | naive |",
+                  "|---|---:|---:|---:|---:|"]
+            wsum = {"c": 0.0, "a": 0.0, "n": 0.0, "w": 0.0}
+            for k in mae_cols:
+                col, nv = f"mae[{k}]", f"naive[{k}]"
+                if f"d_{col}" not in sdf.columns:
+                    continue
+                st = paired_table(sub, col)
+                L.append(f"| {k} | {fmt(sdf[f'c_{col}'].mean(), 3)} | {fmt(sdf[col].mean(), 3)} | "
+                         f"**{st['mean']:+.3f}** | "
+                         f"{fmt(sdf[nv].mean(), 3) if nv in sdf else '--'} |")
+            L += [""]
+
+        L += section(sub, sdf, "3. Guards — did the categorical side pay for it?",
+                     [("median_auc", "median transition AUC"),
+                      ("mean_jaccard", "trajectory Jaccard")]
+                     + [(c, c) for c in sorted(sdf.columns) if c.startswith("auc[")],
+                     note="HIGHER is better here — read the last column as pairs worse.",
+                     lower_is_better=False)
+
+        L += ["### Per-pair detail", "",
+              "| pair | val loss | d | best iter | d | timing bias (y) | d |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+        for _, r in sdf.sort_values("seed").iterrows():
+            tb = r.get("timing_bias_y", np.nan)
+            dtb = r.get("d_timing_bias_y", np.nan)
+            L.append(f"| {r['run']} vs {r['control_run']} | {r['best_val']:.4f} | "
+                     f"{r['d_best_val']:+.4f} | {int(r['best_iter'])} | "
+                     f"{int(r['d_best_iter']):+d} | "
+                     f"{('%.3f' % tb) if pd.notna(tb) else '--'} | "
+                     f"{('%+.3f' % dtb) if pd.notna(dtb) else '--'} |")
         L += [""]
 
-    L += section("3. Guards — did the categorical side pay for it?",
-                 [("median_auc", "median transition AUC"), ("mean_jaccard", "trajectory Jaccard")]
-                 + [(c, c) for c in sorted(df.columns) if c.startswith("auc[")],
-                 note="The head cannot change `softmax(logits)` at fixed weights (verify.py check "
-                      "[4]), but these runs train differently, so the categorical side can still "
-                      "drift. Here HIGHER is better — read the last column as pairs worse.",
-                 lower_is_better=False)
-
-    L += ["## Per-pair detail", "",
-          "| pair | val loss | d | best iter | d | loss_dt | d |", "|---|---:|---:|---:|---:|---:|---:|"]
-    for _, r in df.sort_values(["arm", "seed"]).iterrows():
-        L.append(f"| {r['run']} vs {r['control_run']} | {r['best_val']:.4f} | "
-                 f"{r['d_best_val']:+.4f} | {int(r['best_iter'])} | {int(r['d_best_iter']):+d} | "
-                 f"{fmt(r.get('loss_dt'))} | "
-                 f"{('%+.4f' % r['d_loss_dt']) if pd.notna(r.get('d_loss_dt', np.nan)) else '--'} |")
-    L += [""]
-
     if missing:
-        L += ["## Pairs not analysed", ""] + [f"- {m}" for m in missing] + [""]
+        L += ["---", "", "## Pairs not analysed", ""] + [f"- {m}" for m in missing] + [""]
     if df["nan_guard"].any():
         L += ["> **A run tripped train.py's nan-guard.** Check its log before trusting the row.", ""]
-    have = {"decomposition": bool(dec_new), "downstream eval": "timing_mae_y" in df.columns}
-    L += ["## What is not in here yet", ""] + \
-         [f"- {k}: {'present' if v else 'MISSING — run it, the headline needs it'}"
-          for k, v in have.items()] + [""]
+    have = {"decomposition (loss_ce / loss_dt split)": bool(dec_new),
+            "downstream eval": "timing_mae_y" in df.columns}
+    L += ["## What is not in here yet", ""] +          [f"- {k}: {'present' if v else 'MISSING'}" for k, v in have.items()] + [""]
 
     open(os.path.join(a.out, "PAIRED.md"), "w").write("\n".join(L))
     print("\n".join(L))

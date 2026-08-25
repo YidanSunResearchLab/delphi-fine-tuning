@@ -61,20 +61,38 @@ sys.path.insert(0, CAP)
 from shapes import (SHAPES as CAP_SHAPES, SEEDS as CAP_SEEDS,       # noqa: E402
                     VOCAB_SIZE, BLOCK_SIZE, n_params as trunk_params)
 
-# arm tag -> (its control = a capacity-sweep tag, why this arm is here)
+# arm tag -> (its control = a capacity-sweep tag, {config overrides}, why this arm is here)
 #
-# Two architectures, not six. The question is whether the timing objective responds to being
-# given its own head, and the capacity sweep already showed that the trunk's size is not what
-# moves loss_dt -- so sweeping shape again would spend GPU-hours re-answering a settled
-# question. These two are the shapes anyone would actually ship: the delivered one (so the
-# result reads directly against the whole capacity table) and the one the sweep recommends.
+# Every arm is "the capacity sweep's run for the same shape and seed, plus these config keys".
+# The overrides dict IS the experiment: gen.py writes exactly those lines onto the control's
+# config, and verify.py check [6] fails if the resulting diff is anything else.
+#
+# Two architectures per question, not six. The capacity sweep already established that the
+# trunk's size is not what moves loss_dt, so re-sweeping shape would spend CPU-hours
+# re-answering a settled question. These are the two shapes anyone would actually ship: the
+# delivered one (so the result reads straight against the capacity table) and the one the
+# sweep recommends.
 ARMS = {
-    "TH_L12E120H12": ("L12E120H12",
+    # ---- question 1: does the timing objective improve if given its own parameters? -------
+    "TH_L12E120H12": ("L12E120H12", {"time_head": True},
                       "time head on the DELIVERED architecture -- reads straight against the "
                       "capacity table's reference arm"),
-    "TH_L8E120H6":   ("L8E120H6",
+    "TH_L8E120H6":   ("L8E120H6", {"time_head": True},
                       "time head on the shape the sweep recommends (1.41M; best on both "
                       "downstream metrics)"),
+
+    # ---- question 2: how much of the +2.6 y downstream timing bias was a WRONG TARGET? ----
+    # dt_ablation.py measured, on the real split, that the delivered `gather` target runs
+    # 1.16x (median) / 1.72x (mean) longer than the true visit gaps -- 51.8x with the two data
+    # augmentations off -- because 73.6% of scored positions are handed another position's dt,
+    # which for same-visit tokens is the gap BEFORE their own visit. `next_event` computes the
+    # real forward gap and lands at 0.99x / 0.98x, insensitive to both augmentations.
+    # lambda = 1/E[dt], so a target 1.7x too long makes every predicted time 1.7x too long:
+    # this is the arm that says how much of the observed bias that accounts for.
+    "DT_L12E120H12": ("L12E120H12", {"dt_target": "'next_event'"},
+                      "fixed timing target on the DELIVERED architecture"),
+    "DT_L8E120H6":   ("L8E120H6", {"dt_target": "'next_event'"},
+                      "fixed timing target on the shape the sweep recommends"),
 }
 
 # Must match the capacity sweep's seeds: the controls ARE those runs.
@@ -85,20 +103,38 @@ def control(arm):
     return ARMS[arm][0]
 
 
+def overrides(arm):
+    """The config keys this arm sets on top of its control's config. Values are written into
+    the generated config verbatim, so strings must carry their own quotes."""
+    return ARMS[arm][1]
+
+
+def why(arm):
+    return ARMS[arm][2]
+
+
+def override_keys():
+    """Every key any arm touches -- what verify.py is allowed to see differ."""
+    return {k for a in ARMS for k in overrides(a)}
+
+
 def shape(arm):
     """(n_layer, n_head, n_embd) -- taken from the control, never restated here. Restating it
     is how an arm silently stops being a control led comparison."""
     return CAP_SHAPES[control(arm)][:3]
 
 
-def head_params(n_embd):
-    """The added head: nn.Linear(n_embd, 1, bias=True)."""
-    return n_embd + 1
+def head_params(arm):
+    """Parameters this arm ADDS to the trunk. Only the time head adds any: nn.Linear(d, 1).
+    A dt_target arm changes the objective, not the model, so it adds exactly 0."""
+    if overrides(arm).get("time_head"):
+        return shape(arm)[2] + 1
+    return 0
 
 
 def n_params(arm):
     nl, nh, ne = shape(arm)
-    return trunk_params(nl, nh, ne) + head_params(ne)
+    return trunk_params(nl, nh, ne) + head_params(arm)
 
 
 def manifest():
@@ -114,13 +150,13 @@ def manifest():
 
 
 if __name__ == "__main__":
-    print(f"{'arm':<16}{'control':<13}{'L':>3}{'H':>3}{'d':>5}{'params':>12}{'head':>7}"
-          f"{'  overhead':>12}")
+    print(f"{'arm':<16}{'control':<13}{'L':>3}{'H':>3}{'d':>5}{'params':>12}{'+params':>9}"
+          f"   overrides")
     for arm in ARMS:
         nl, nh, ne = shape(arm)
-        p, hp = n_params(arm), head_params(ne)
-        print(f"{arm:<16}{control(arm):<13}{nl:>3}{nh:>3}{ne:>5}{p:>12,}{hp:>7}"
-              f"{100 * hp / p:>11.3f}%")
-        print(f"{'':<16}{ARMS[arm][1]}")
+        p, hp = n_params(arm), head_params(arm)
+        ov = ", ".join(f"{k}={v}" for k, v in overrides(arm).items())
+        print(f"{arm:<16}{control(arm):<13}{nl:>3}{nh:>3}{ne:>5}{p:>12,}{hp:>9}   {ov}")
+        print(f"{'':<16}{why(arm)}")
     print(f"\n{len(ARMS)} arms x {len(SEEDS)} seeds = {len(manifest())} new runs "
           f"({len(manifest())} controls reused from experiments/capacity/runs)")

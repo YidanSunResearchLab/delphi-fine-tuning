@@ -69,6 +69,11 @@ mask_ties = True
 # time-to-next-event intensity read off it as logsumexp(logits). True gives the timing
 # objective its own scalar head (see delphi/model.py and experiments/time_head/).
 time_head = False
+# dt_target: what loss_dt is trained to predict. "gather" = the delivered behaviour (a
+# position uses the dt of the last token it may attend to, which for same-visit tokens is the
+# gap BEFORE their own visit); "next_visit" = the real forward gap to the next distinct age.
+# See delphi/model.py and experiments/time_head/. Default keeps every delivered run intact.
+dt_target = 'gather'
 ignore_tokens = [0]
 data_fraction = 1.0
 # training cohort filter: keep a subject if it has >= cohort_min_visits distinct visits,
@@ -76,6 +81,13 @@ data_fraction = 1.0
 # after keep-transitions dedup). Set cohort_min_visits<=1 to disable (train on everyone).
 cohort_min_visits = 4
 cohort_short_min_visits = 2
+# DISK-space ids of the ordinal staging scale the short-visit branch of the cohort filter
+# looks for (>=2 tokens == the state changed at least once). NACC default = NACCUDSD
+# Normal..Dementia (model 106-109 -> disk 105-108). A different tokenisation overrides this
+# in its config -- config/train_radc.py sets the MMSE scale, (21, 22, 23, 24).
+# Not in `config` (only int/float/bool/str globals are logged), but configurator.py exec's
+# the config file into globals(), so a config-file assignment DOES take effect.
+stage_tokens_disk = (105, 106, 107, 108)
 no_event_token_rate = 5
 
 
@@ -110,13 +122,21 @@ train_p2i = get_p2i(train_data)
 val_p2i = get_p2i(val_data)
 
 
-def filter_cohort(data, p2i, min_visits, short_min_visits, udsd_disk=(105, 106, 107, 108)):
+def filter_cohort(data, p2i, min_visits, short_min_visits, udsd_disk=None):
     """Keep subjects with >= min_visits distinct visits (age>0), OR >= short_min_visits
-    visits that ALSO show a NACCUDSD transition (>=2 NACCUDSD tokens post keep-transitions,
-    i.e. the state changed at least once). min_visits<=1 -> no filtering. Tokens here are
-    disk-space (model_id - 1), so NACCUDSD Normal..Dementia = 105..108."""
+    visits that ALSO show a STAGING transition (>=2 staging-scale tokens post
+    keep-transitions, i.e. the state changed at least once). min_visits<=1 -> no filtering.
+
+    `udsd_disk` defaults to the module-level `stage_tokens_disk`, which a config file can
+    override. Tokens here are disk-space (model_id - 1): NACC's NACCUDSD Normal..Dementia
+    = 105..108; RADC's MMSE scale = 21..24.
+
+    NOTE what "visits" means after dedup: distinct AGES that still carry an event. A subject
+    seen 10 times whose every scale stayed put contributes far fewer than 10."""
     if min_visits is None or min_visits <= 1:
         return p2i
+    if udsd_disk is None:
+        udsd_disk = stage_tokens_disk
     ages = np.asarray(data[:, 1]); toks = np.asarray(data[:, 2])
     udsd = np.asarray(udsd_disk)
     keep = np.zeros(len(p2i), dtype=bool)
@@ -135,7 +155,8 @@ if cohort_min_visits and cohort_min_visits > 1:
     n_tr0, n_va0 = len(train_p2i), len(val_p2i)
     train_p2i = filter_cohort(train_data, train_p2i, cohort_min_visits, cohort_short_min_visits)
     val_p2i = filter_cohort(val_data, val_p2i, cohort_min_visits, cohort_short_min_visits)
-    print(f"cohort filter (>= {cohort_min_visits} visits OR >= {cohort_short_min_visits} + NACCUDSD transition): "
+    print(f"cohort filter (>= {cohort_min_visits} visits OR >= {cohort_short_min_visits} + "
+          f"staging transition on disk tokens {tuple(stage_tokens_disk)}): "
           f"train {n_tr0} -> {len(train_p2i)} | val {n_va0} -> {len(val_p2i)} patients")
 
 # downsample the data to requested fraction
@@ -153,7 +174,7 @@ print(f"found vocab_size = {vocab_size}")
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=vocab_size, dropout=dropout, token_dropout=token_dropout, t_min=t_min,
                   mask_ties=mask_ties, ignore_tokens=ignore_tokens,
-                  time_head=time_head)  # start with model_args from command line
+                  time_head=time_head, dt_target=dt_target)  # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -175,6 +196,9 @@ elif init_from == 'resume':
     # checkpoint would fail in load_state_dict. Checkpoints written before the head existed
     # have no such key, and absent means the single-head model.
     model_args['time_head'] = checkpoint_model_args.get('time_head', False)
+    # not architectural (no parameters), but it changes the objective, so a resume must not
+    # silently switch it: keep whatever the checkpoint was trained with.
+    model_args['dt_target'] = checkpoint_model_args.get('dt_target', 'gather')
     # create the model
     gptconf = DelphiConfig(**model_args)
     model = Delphi(gptconf)

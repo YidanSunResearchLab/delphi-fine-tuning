@@ -1,0 +1,60 @@
+variable,type,grain,source,pct_nonnull,nunique,codebook_note
+study,nominal,person,cross-sectional-data-gk,100.0,3,ROS / MAP / LATC cohort label
+apoe_genotype,nominal,person,cross-sectional-data-gk,72.88,6,"22/23/24/33/34/44; NOT ordinal -- e2 is protective, e4 risk"
+age_first_ad_dx,cont,person,cross-sectional-data-gk,26.29,1076,"age at FIRST cycle with dcfdx in {4,5}; missing if demented at baseline"
+cogng_demog_slope,cont,person,cross-sectional-data-gk,90.45,4005,random slope of cogn_global from an LME over the WHOLE follow-up
+age_bl,cont,person,cross-sectional-data-gk,100.0,3597,"age at baseline assessment, (visit date - dob)/365.25; NOT capped"
+died,binary,person,cross-sectional-data-gk,100.0,2,1 died / 0 alive as of the data freeze
+educ,cont,person,cross-sectional-data-gk,100.0,31,"years of regular school, reported at baseline"
+msex,binary,person,cross-sectional-data-gk,100.0,2,1 male / 0 female
+ldai_bl,cont,person,cross-sectional-data-gk,99.39,9,"lifetime daily alcohol intake at baseline, drinks/day"
+smoking_bl,ordinal,person,cross-sectional-data-gk,99.59,3,"0 never / 1 former / 2 current, at baseline"
+braaksc,ordinal,person,cross-sectional-data-gk,49.84,7,"Braak NFT stage 0-6, ascending severity; AUTOPSY ONLY"
+ceradsc,ordinal,person,cross-sectional-data-gk,49.84,4,CERAD 1 definite / 2 probable / 3 possible / 4 no AD -- REVERSE coded; AUTOPSY ONLY
+gpath,cont,person,cross-sectional-data-gk,44.74,1890,"global AD pathology burden, 3 measures x 5 regions; AUTOPSY ONLY"
+pmi,cont,person,cross-sectional-data-gk,50.25,742,post-mortem interval (hours); AUTOPSY ONLY -- presence alone implies death
+amylsqrt_est_8reg,cont,person,cross-sectional-data-gk,49.3,1910,"sqrt amyloid density, 8 regions; AUTOPSY ONLY"
+lewydx_st4,ordinal,person,cross-sectional-data-gk,47.92,4,Lewy body disease stage; AUTOPSY ONLY
+tangsqrt_est_8reg,cont,person,cross-sectional-data-gk,49.32,2179,"sqrt tangle density, 8 regions; AUTOPSY ONLY"
+tdp_st4,ordinal,person,cross-sectional-data-gk,47.4,4,TDP-43 stage; AUTOPSY ONLY
+arteriol_scler,ordinal,person,cross-sectional-data-gk,49.55,4,arteriolosclerosis grade; AUTOPSY ONLY
+caa_4gp,ordinal,person,cross-sectional-data-gk,49.1,4,"cerebral amyloid angiopathy, 4 groups; AUTOPSY ONLY"
+cvda_4gp2,ordinal,person,cross-sectional-data-gk,49.86,4,"cerebral atherosclerosis, 4 groups; AUTOPSY ONLY"
+ci_num2_mct,binary,person,cross-sectional-data-gk,49.5,2,>=1 chronic microinfarct; AUTOPSY ONLY
+ci_num2_tct,binary,person,cross-sectional-data-gk,49.5,2,>=1 chronic infarct; AUTOPSY ONLY
+fu_year,time,visit,longitudinal_data_gk,100.0,32,follow-up cycle index; 0 = baseline. THE ONLY time field in the release
+log_hcrp,cont,visit,longitudinal_data_gk,1.18,426,log C-reactive protein
+log_hil6,cont,visit,longitudinal_data_gk,1.18,322,log interleukin-6
+log_htnfa,cont,visit,longitudinal_data_gk,1.18,382,log TNF-alpha
+gfr_mdrs,cont,visit,longitudinal_data_gk,54.97,19635,estimated glomerular filtration rate (MDRD)
+glucose,cont,visit,longitudinal_data_gk,54.95,315,blood glucose
+hba1c,cont,visit,longitudinal_data_gk,43.16,86,hemoglobin A1c
+hdlchlstrl,cont,visit,longitudinal_data_gk,54.97,140,HDL cholesterol
+ldlchlstrl,cont,visit,longitudinal_data_gk,54.56,231,LDL cholesterol
+r_stroke,ordinal,visit,longitudinal_data_gk,85.9,4,clinician stroke dx: 1 highly probable / 2 probable / 3 possible / 4 NOT present -- REVERSE coded
+cogn_global,cont,visit,longitudinal_data_gk,97.12,35042,"global cognition z, mean of 19 tests; z uses the BASELINE-cycle cohort mean/sd"
+cts_estmmse30,cont,visit,longitudinal_data_gk,93.83,141,"estimated MMSE, 0-30 scale"
+r_depres,ordinal,visit,longitudinal_data_gk,96.49,4,clinician major depression dx: 1 highly probable ... 4 NOT present -- REVERSE coded
+bmi,cont,visit,longitudinal_data_gk,79.17,2989,"body mass index, measured at each visit"
+dbp_avg,cont,visit,longitudinal_data_gk,85.7,165,"diastolic blood pressure, averaged"
+hypertension_cum,binary,visit,longitudinal_data_gk,98.14,2,"self-reported hypertension EVER UP TO this cycle -- cumulative, monotone"
+sbp_avg,cont,visit,longitudinal_data_gk,85.88,275,"systolic blood pressure, averaged"
+dm_cum,binary,visit,longitudinal_data_gk,99.25,2,"self-reported diabetes ever up to this cycle -- cumulative, monotone"
+chf_cum,binary,visit,longitudinal_data_gk,54.61,2,"congestive heart failure ever up to this cycle -- cumulative, monotone"
+claudication_cum,binary,visit,longitudinal_data_gk,98.11,2,"claudication ever up to this cycle -- cumulative, monotone"
+heart_cum,binary,visit,longitudinal_data_gk,98.13,2,"heart condition ever up to this cycle -- cumulative, monotone"
+antihyp_rx,binary,visit,longitudinal_data_gk,99.27,2,antihypertensive taken in the 2 weeks before THIS visit -- point-in-time
+diabetes_rx,binary,visit,longitudinal_data_gk,99.27,2,diabetes medication at this visit -- point-in-time
+statin_rx,binary,visit,longitudinal_data_gk,99.27,2,statin at this visit -- point-in-time
+ad_rx,binary,visit,longitudinal_data_gk,99.27,2,AD medication at this visit -- point-in-time
+berlin_risk_class,binary,visit,longitudinal_data_gk,19.59,2,Berlin questionnaire high risk of sleep apnea
+psqi_sum,cont,visit,longitudinal_data_gk,55.46,16,Pittsburgh sleep quality index summary
+Study,nominal,person,ROSMAP_clinical,99.97,2,cohort label in the ROSMAP release
+race,nominal,person,ROSMAP_clinical,99.97,7,self-reported race
+spanish,nominal,person,ROSMAP_clinical,99.97,2,"Spanish/Hispanic ethnicity, 1 yes / 2 no"
+age_at_visit_max,cont,person,ROSMAP_clinical,99.97,2060,"age at last visit -- DE-IDENTIFIED, top coded as the string '90+'"
+age_death,cont,person,ROSMAP_clinical,51.76,885,"age at death -- DE-IDENTIFIED, top coded as the string '90+'"
+cts_mmse30_first_ad_dx,cont,person,ROSMAP_clinical,22.52,65,MMSE at the first AD dx cycle
+cts_mmse30_lv,cont,person,ROSMAP_clinical,99.89,104,MMSE at the LAST valid cycle
+cogdx,ordinal,person,ROSMAP_clinical,50.81,6,FINAL consensus cognitive dx (post-mortem informed for autopsied)
+dcfdx_lv,ordinal,person,ROSMAP_clinical,99.97,6,clinical dx at the LAST valid cycle -- 1 NCI / 2 MCI / 3 MCI+ / 4 AD / 5 AD+ / 6 other dementia

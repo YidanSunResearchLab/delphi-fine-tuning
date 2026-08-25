@@ -72,6 +72,26 @@ class Adapter:
         # a short signature of (checkpoint identity + seed) for cache keys
         self.ckpt_sig = args.get("_ckpt_sig", "nosig")
 
+        # OPT-IN: visit-batched sampling. Set DELPHI_VISIT_SIZES to a .npy of observed
+        # tokens-per-visit counts and model.generate() emits a whole visit per step instead of
+        # one token, all at a single age. Unset (the default) reproduces the delivered sampler
+        # exactly. Why: generation emits 1.03 tokens per visit where the data has 4.11, so one
+        # real visit costs several simulated steps and trajectories run 2.5x too slow
+        # (experiments/time_head/gen_steps_probe.py).
+        #
+        # The cache signature is EXTENDED when it is on. simulate_trajectory caches by
+        # ckpt_sig, and changing the sampler without changing the key would silently re-serve
+        # the old trajectories -- the run would look like the change did nothing.
+        self.visit_sizes = None
+        _vs = os.environ.get("DELPHI_VISIT_SIZES", "").strip()
+        if _vs and _vs.lower() not in ("0", "off", "none"):
+            self.visit_sizes = np.load(_vs).astype(np.int64).ravel()
+            self.ckpt_sig = (f"{self.ckpt_sig}|vb"
+                             f"{hashlib.md5(self.visit_sizes.tobytes()).hexdigest()[:8]}")
+            print(f"[adapter] visit-batched sampling ON: {len(self.visit_sizes):,} observed "
+                  f"visit sizes (median {np.median(self.visit_sizes):.0f}, "
+                  f"mean {self.visit_sizes.mean():.2f}) -- cache sig {self.ckpt_sig}")
+
     def content_mask(self):
         """Boolean (vocab,) True where a token is a real prediction target (not ignored)."""
         m = np.ones(self.vocab, dtype=bool)
@@ -205,7 +225,8 @@ def simulate_trajectory(ad, tokens, ages, until_age_years=100.0, n_samples=100,
     idx = torch.as_tensor(np.tile(tokens, (n_samples, 1)), dtype=torch.long, device=ad.device)
     age = torch.as_tensor(np.tile(ages, (n_samples, 1)), dtype=torch.float32, device=ad.device)
     gi, ga, _ = ad.model.generate(idx, age, max_new_tokens=max_new_tokens, max_age=until_days,
-                                  termination_tokens=[DEATH])
+                                  termination_tokens=[DEATH],
+                                  visit_sizes=getattr(ad, "visit_sizes", None))
     out = dict(ages=ga.cpu().numpy().astype(np.float64),
                tokens=gi.cpu().numpy().astype(np.int64), seed_len=seed_len)
     if cpath is not None:

@@ -1,0 +1,25 @@
+target,model,features,n,n_pos,prevalence_pct,roc_auc,pr_auc,pr_auc_lift_over_prevalence,horizon_years,n_dropped_censored
+y_ad_next,B1 demographics only,"age_at_visit, msex, educ",28638,951,3.32,0.7201,0.082,2.47,,
+y_ad_next,B2 + last cognition,"age_at_visit, msex, educ, cogn_global",28638,951,3.32,0.928,0.3144,9.47,,
+y_ad_next,B3 + change + MMSE,"age_at_visit, msex, educ, cogn_global, d_cogn, cts_estmmse30",28638,951,3.32,0.9358,0.3417,10.29,,
+y_ad_next,B0 last cognition ALONE,cogn_global,28638,951,3.32,0.9133,0.2789,8.4,,
+y_imp_next,B1 demographics only,"age_at_visit, msex, educ",24742,1494,6.04,0.7238,0.1389,2.3,,
+y_imp_next,B2 + last cognition,"age_at_visit, msex, educ, cogn_global",24742,1494,6.04,0.8946,0.4165,6.9,,
+y_imp_next,B3 + change + MMSE,"age_at_visit, msex, educ, cogn_global, d_cogn, cts_estmmse30",24742,1494,6.04,0.9058,0.4494,7.44,,
+y_imp_next,B0 last cognition ALONE,cogn_global,24742,1494,6.04,0.8836,0.3924,6.5,,
+y_ad_within_1y,B1 demographics only,,28841,1090,3.78,0.7356,0.1001,2.65,1.0,3100.0
+y_ad_within_1y,B2 + last cognition,,28841,1090,3.78,0.9359,0.3899,10.31,1.0,3100.0
+y_ad_within_1y,B3 + change + MMSE,,28841,1090,3.78,0.9478,0.4362,11.54,1.0,3100.0
+y_ad_within_1y,B0 last cognition ALONE,,28841,1090,3.78,0.9209,0.35,9.26,1.0,3100.0
+y_ad_within_2y,B1 demographics only,,26545,2050,7.72,0.7412,0.1999,2.59,2.0,5396.0
+y_ad_within_2y,B2 + last cognition,,26545,2050,7.72,0.9221,0.5104,6.61,2.0,5396.0
+y_ad_within_2y,B3 + change + MMSE,,26545,2050,7.72,0.9297,0.5351,6.93,2.0,5396.0
+y_ad_within_2y,B0 last cognition ALONE,,26545,2050,7.72,0.9022,0.4552,5.9,2.0,5396.0
+y_ad_within_3y,B1 demographics only,,24451,2960,12.11,0.7513,0.3049,2.52,3.0,7490.0
+y_ad_within_3y,B2 + last cognition,,24451,2960,12.11,0.9151,0.6061,5.0,3.0,7490.0
+y_ad_within_3y,B3 + change + MMSE,,24451,2960,12.11,0.921,0.6239,5.15,3.0,7490.0
+y_ad_within_3y,B0 last cognition ALONE,,24451,2960,12.11,0.8901,0.5391,4.45,3.0,7490.0
+y_ad_within_5y,B1 demographics only,,20873,4566,21.88,0.7722,0.5074,2.32,5.0,11068.0
+y_ad_within_5y,B2 + last cognition,,20873,4566,21.88,0.9044,0.7381,3.37,5.0,11068.0
+y_ad_within_5y,B3 + change + MMSE,,20873,4566,21.88,0.9085,0.7488,3.42,5.0,11068.0
+y_ad_within_5y,B0 last cognition ALONE,,20873,4566,21.88,0.8705,0.6635,3.03,5.0,11068.0

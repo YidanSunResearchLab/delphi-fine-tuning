@@ -1,0 +1,17 @@
+variable,scheme,n_bins,n_pairs,transition_rate_pct,median_distinct_bins_per_person,pct_persons_single_bin
+cogn_global,equal_width,4,28584,17.73,2.0,47.66
+cogn_global,equal_width,10,28584,35.27,2.0,25.8
+cogn_global,quantile,4,28584,32.02,2.0,35.32
+cogn_global,quantile,10,28584,60.11,3.0,18.54
+cts_estmmse30,equal_width,4,26621,8.23,1.0,67.96
+cts_estmmse30,equal_width,10,26621,26.17,2.0,44.16
+cts_estmmse30,quantile,4,26621,43.36,2.0,26.93
+cts_estmmse30,quantile,10,26621,64.34,3.0,16.57
+bmi,equal_width,4,20544,12.39,1.0,66.57
+bmi,equal_width,10,20544,27.55,2.0,39.33
+bmi,quantile,4,20544,25.71,2.0,46.38
+bmi,quantile,10,20544,52.26,2.0,27.62
+sbp_avg,equal_width,4,23019,33.29,2.0,34.42
+sbp_avg,equal_width,10,23019,64.97,3.0,16.0
+sbp_avg,quantile,4,23019,59.41,3.0,19.68
+sbp_avg,quantile,10,23019,81.48,4.0,13.64

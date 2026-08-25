@@ -1,0 +1,85 @@
+test split: cohort 4,589 patients, probing 400
+
+================================================================================================================
+L8E120H6_s42   8L/6H/120d   time_head=False  dt_target=gather
+================================================================================================================
+
+[1] tokens per visit  (a visit = ages within 30 d of each other)
+  REAL                                   n=  2,297  p5    1.00  p25    1.00  med    2.00  p75    4.00  p95   16.00  mean    4.11 tokens
+  GENERATED                              n= 32,759  p5    1.00  p25    1.00  med    1.00  p75    1.00  p95    1.00  mean    1.03 tokens
+
+[2] gap between consecutive DISTINCT visits -- the per-step clock
+  REAL                                   n=  1,897  p5    0.78  p25    1.00  med    1.11  p75    1.78  p95    3.60  mean    1.55 years
+  GENERATED                              n= 26,374  p5    0.19  p25    0.73  med    1.68  p75    3.42  p95    8.08  mean    2.59 years
+
+[4] sampled dt per generate() step
+  every sampled step                     n= 33,771  p5    0.11  p25    0.63  med    1.55  p75    3.25  p95    7.76  mean    2.44 years
+                                         fraction of steps with dt < 30 d (a tie): 3.799%
+
+[3] reaching NACCUDSD=Dementia from visit 2
+  REAL   elapsed                         n=     54  p5    1.00  p25    1.28  med    3.67  p75    6.71  p95   11.89  mean    4.61 years
+  REAL   visits crossed                  n=     54  p5    1.00  p25    1.00  med    2.00  p75    5.00  p95    7.35  mean    3.15 visits
+  GEN    elapsed                         n=  1,197  p5    0.95  p25    4.37  med    9.27  p75   16.11  p95   27.02  mean   11.17 years
+  GEN    tokens emitted (= steps)        n=  1,197  p5    1.00  p25    3.00  med    4.00  p75    7.00  p95   10.00  mean    4.89 steps
+  GEN    visits crossed                  n=  1,197  p5    1.00  p25    3.00  med    4.00  p75    6.00  p95   10.00  mean    4.75 visits
+
+  -> elapsed  GEN / REAL = 2.52x   (9.27 y vs 3.67 y, medians)
+     steps    GEN / REAL visits = 2.00x   (4 steps vs 2 visits)
+     tokens/visit  REAL 2.0 vs GEN 1.0
+
+================================================================================================================
+DT_L8E120H6_s42   8L/6H/120d   time_head=False  dt_target=next_event
+================================================================================================================
+
+[1] tokens per visit  (a visit = ages within 30 d of each other)
+  REAL                                   n=  2,297  p5    1.00  p25    1.00  med    2.00  p75    4.00  p95   16.00  mean    4.11 tokens
+  GENERATED                              n= 32,476  p5    1.00  p25    1.00  med    1.00  p75    1.00  p95    1.00  mean    1.04 tokens
+
+[2] gap between consecutive DISTINCT visits -- the per-step clock
+  REAL                                   n=  1,897  p5    0.78  p25    1.00  med    1.11  p75    1.78  p95    3.60  mean    1.55 years
+  GENERATED                              n= 26,091  p5    0.19  p25    0.66  med    1.52  p75    3.09  p95    7.38  mean    2.35 years
+
+[4] sampled dt per generate() step
+  every sampled step                     n= 33,642  p5    0.10  p25    0.56  med    1.40  p75    2.93  p95    7.04  mean    2.21 years
+                                         fraction of steps with dt < 30 d (a tie): 4.316%
+
+[3] reaching NACCUDSD=Dementia from visit 2
+  REAL   elapsed                         n=     54  p5    1.00  p25    1.28  med    3.67  p75    6.71  p95   11.89  mean    4.61 years
+  REAL   visits crossed                  n=     54  p5    1.00  p25    1.00  med    2.00  p75    5.00  p95    7.35  mean    3.15 visits
+  GEN    elapsed                         n=    985  p5    0.94  p25    5.07  med   11.08  p75   18.55  p95   29.16  mean   12.49 years
+  GEN    tokens emitted (= steps)        n=    985  p5    1.00  p25    3.00  med    5.00  p75    8.00  p95   11.00  mean    5.54 steps
+  GEN    visits crossed                  n=    985  p5    1.00  p25    3.00  med    5.00  p75    7.00  p95   11.00  mean    5.36 visits
+
+  -> elapsed  GEN / REAL = 3.02x   (11.08 y vs 3.67 y, medians)
+     steps    GEN / REAL visits = 2.50x   (5 steps vs 2 visits)
+     tokens/visit  REAL 2.0 vs GEN 1.0
+
+================================================================================================================
+TH_L8E120H6_s42   8L/6H/120d   time_head=True  dt_target=gather
+================================================================================================================
+
+[1] tokens per visit  (a visit = ages within 30 d of each other)
+  REAL                                   n=  2,297  p5    1.00  p25    1.00  med    2.00  p75    4.00  p95   16.00  mean    4.11 tokens
+  GENERATED                              n= 34,182  p5    1.00  p25    1.00  med    1.00  p75    1.00  p95    1.00  mean    1.04 tokens
+
+[2] gap between consecutive DISTINCT visits -- the per-step clock
+  REAL                                   n=  1,897  p5    0.78  p25    1.00  med    1.11  p75    1.78  p95    3.60  mean    1.55 years
+  GENERATED                              n= 27,802  p5    0.18  p25    0.66  med    1.56  p75    3.29  p95    8.33  mean    2.56 years
+
+[4] sampled dt per generate() step
+  every sampled step                     n= 35,393  p5    0.09  p25    0.57  med    1.43  p75    3.08  p95    7.88  mean    2.38 years
+                                         fraction of steps with dt < 30 d (a tie): 4.309%
+
+[3] reaching NACCUDSD=Dementia from visit 2
+  REAL   elapsed                         n=     54  p5    1.00  p25    1.28  med    3.67  p75    6.71  p95   11.89  mean    4.61 years
+  REAL   visits crossed                  n=     54  p5    1.00  p25    1.00  med    2.00  p75    5.00  p95    7.35  mean    3.15 visits
+  GEN    elapsed                         n=  1,263  p5    0.73  p25    4.49  med   10.45  p75   17.91  p95   29.66  mean   12.24 years
+  GEN    tokens emitted (= steps)        n=  1,263  p5    1.00  p25    3.00  med    5.00  p75    7.00  p95   11.00  mean    5.18 steps
+  GEN    visits crossed                  n=  1,263  p5    1.00  p25    3.00  med    5.00  p75    7.00  p95   11.00  mean    5.03 visits
+
+  -> elapsed  GEN / REAL = 2.84x   (10.45 y vs 3.67 y, medians)
+     steps    GEN / REAL visits = 2.50x   (5 steps vs 2 visits)
+     tokens/visit  REAL 2.0 vs GEN 1.0
+
+[gen_steps] -> /storage3/fs1/mdan/Active/secure-ad-comorbidity/huang.yi1/AD0820_capacity/results/time_head/gen_steps.csv
+DONE

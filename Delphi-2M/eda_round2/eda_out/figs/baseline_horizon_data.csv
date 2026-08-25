@@ -1,0 +1,17 @@
+horizon_years,model,n,n_pos,prevalence_pct,roc_auc,pr_auc,n_dropped_censored,pr_auc_lift_over_prevalence
+1,B1 demographics only,28841,1090,3.78,0.7356,0.1001,3100,2.65
+1,B2 + last cognition,28841,1090,3.78,0.9359,0.3899,3100,10.31
+1,B3 + change + MMSE,28841,1090,3.78,0.9478,0.4362,3100,11.54
+1,B0 last cognition ALONE,28841,1090,3.78,0.9209,0.35,3100,9.26
+2,B1 demographics only,26545,2050,7.72,0.7412,0.1999,5396,2.59
+2,B2 + last cognition,26545,2050,7.72,0.9221,0.5104,5396,6.61
+2,B3 + change + MMSE,26545,2050,7.72,0.9297,0.5351,5396,6.93
+2,B0 last cognition ALONE,26545,2050,7.72,0.9022,0.4552,5396,5.9
+3,B1 demographics only,24451,2960,12.11,0.7513,0.3049,7490,2.52
+3,B2 + last cognition,24451,2960,12.11,0.9151,0.6061,7490,5.0
+3,B3 + change + MMSE,24451,2960,12.11,0.921,0.6239,7490,5.15
+3,B0 last cognition ALONE,24451,2960,12.11,0.8901,0.5391,7490,4.45
+5,B1 demographics only,20873,4566,21.88,0.7722,0.5074,11068,2.32
+5,B2 + last cognition,20873,4566,21.88,0.9044,0.7381,11068,3.37
+5,B3 + change + MMSE,20873,4566,21.88,0.9085,0.7488,11068,3.42
+5,B0 last cognition ALONE,20873,4566,21.88,0.8705,0.6635,11068,3.03

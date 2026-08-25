@@ -1,0 +1,34 @@
+train cohort 16,262 patients | test cohort 4,589
+
+============================================================================================
+[1] how often does a scored position have a same-visit sibling before it?
+============================================================================================
+  78.7% of 90,791 scored content targets (71,408) already have >=1 token at their own visit.
+  Those are exactly the positions mask_ties blinds.
+
+============================================================================================
+[2] cross-entropy of the next content token, nats (count predictors, train->test)
+============================================================================================
+  predictor                                      CE (nats)   vs marginal
+  marginal (knows nothing)                          3.9000       +0.0000
+  | previous visit's tokens  (mask_ties keeps)      3.7777       -0.1223
+  | same-visit tokens so far (mask_ties REMOVES)      3.2865       -0.6135
+  the trained model, loss_ce                        2.7098       -1.1902   (L8E120H6_s42, for scale)
+
+============================================================================================
+[3] THE WORRY: predict this visit's NACCUDSD from the OTHER tokens at the same visit
+============================================================================================
+  n = 8,596 visits carrying a NACCUDSD token
+  accuracy from same-visit siblings :  45.7%
+  accuracy of always-guess-majority :  33.8%
+  cross-entropy  siblings 1.1484  vs marginal 1.3196  -> +0.1712 nats of leakage
+
+============================================================================================
+[4] the same checkpoint scored with mask_ties ON vs OFF
+    OUT OF DISTRIBUTION -- this model was TRAINED with the mask, so switching it
+    off at eval shows what it does with inputs it never learned to use, not what
+    a model trained without the mask would achieve. Indicative only.
+============================================================================================
+  mask_ties=True   loss_ce 2.7098   loss_dt 7.4741
+  mask_ties=False  loss_ce 3.3846   loss_dt 6.7845
+DONE

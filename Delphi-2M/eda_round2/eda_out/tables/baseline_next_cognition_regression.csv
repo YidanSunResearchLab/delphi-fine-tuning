@@ -1,0 +1,5 @@
+model,n,r2,mae,rmse
+Linear regression on B3 features,30365,0.8346,0.2379,0.3433
+LOCF (carry last cognition forward),30365,0.8048,0.2574,0.373
+Per-person linear extrapolation (prior visits only),30365,0.7717,0.2778,0.4034
+"Linear mixed model, population fixed effects",30365,-0.1944,0.7371,0.9226

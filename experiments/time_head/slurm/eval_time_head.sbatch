@@ -63,19 +63,26 @@ cd "$TREE/Delphi-2M"
 echo "    host  $(hostname) | workers $WORKERS"
 
 # The whole point of this eval is the timing panels, and those come out of generate(). A
-# checkpoint whose model_args lack time_head would load as the single-head model and score
-# the WRONG model without erroring, so check it before spending 40 CPU-minutes.
-python - <<'PY'
-import sys, torch
+# checkpoint that silently trained the CONTROL -- because phase 1 ran against a stale config
+# or a tree that predates the key -- would score without erroring, so verify the checkpoint
+# actually carries this arm's overrides before spending 40 CPU-minutes.
+CFG="$EXP/configs/th_${ARM}.py" python - <<'PY'
+import os, re, sys, torch
 sys.path.insert(0, ".")
 c = torch.load("ckpt_under_test.pt", map_location="cpu", weights_only=False)
-if not c["model_args"].get("time_head"):
-    sys.exit("FATAL: this checkpoint's model_args says time_head is off. Either phase 1 ran "
-             "with a stale config or the tree that trained it predates the head.")
-keys = [k for k in c["model"] if "time_head" in k]
-if len(keys) != 2:
-    sys.exit(f"FATAL: expected 2 time_head tensors in the state dict, found {keys}")
-print(f"  checkpoint carries the time head ({', '.join(sorted(keys))}), iter {c['iter_num']}")
+args = c["model_args"]
+want = dict(re.findall(r"^(time_head|dt_target) *= *(.+?)\s*$",
+                       open(os.environ["CFG"]).read(), re.M))
+for k, v in want.items():
+    got, exp = args.get(k, "<absent>"), eval(v)
+    if got != exp:
+        sys.exit(f"FATAL: checkpoint has {k}={got!r}, this arm's config says {exp!r}. "
+                 f"Phase 1 did not train what this eval thinks it did.")
+if want.get("time_head") == "True":
+    keys = [k for k in c["model"] if "time_head" in k]
+    if len(keys) != 2:
+        sys.exit(f"FATAL: expected 2 time_head tensors in the state dict, found {keys}")
+print(f"  checkpoint matches the arm: {want or 'delivered keys'}, iter {c['iter_num']}")
 PY
 
 START=$(date +%s)

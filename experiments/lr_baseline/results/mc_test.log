@@ -1,0 +1,19 @@
+2026-08-25 12:50:39,601 INFO MC pass: 4589 patients (test, matched cohort), n_mc=100, 9 workers, cap=6.0 y
+number of parameters: 2.10M
+2026-08-25 12:52:53,820 INFO   100/4589  (100 kept)  134s elapsed, ~100 min left
+2026-08-25 12:54:10,190 INFO   200/4589  (200 kept)  211s elapsed, ~77 min left
+2026-08-25 12:56:03,294 INFO   300/4589  (300 kept)  324s elapsed, ~77 min left
+2026-08-25 12:57:26,808 INFO   400/4589  (400 kept)  407s elapsed, ~71 min left
+2026-08-25 12:58:52,419 INFO   500/4589  (500 kept)  493s elapsed, ~67 min left
+2026-08-25 12:59:57,338 INFO   600/4589  (600 kept)  558s elapsed, ~62 min left
+2026-08-25 13:01:35,970 INFO   700/4589  (700 kept)  656s elapsed, ~61 min left
+2026-08-25 13:06:17,858 INFO   800/4589  (800 kept)  938s elapsed, ~74 min left
+2026-08-25 13:09:43,420 INFO   900/4589  (900 kept)  1144s elapsed, ~78 min left
+2026-08-25 13:11:22,333 INFO   1000/4589  (1000 kept)  1243s elapsed, ~74 min left
+2026-08-25 13:14:10,088 INFO   1100/4589  (1100 kept)  1410s elapsed, ~75 min left
+2026-08-25 13:16:09,348 INFO   1200/4589  (1200 kept)  1530s elapsed, ~72 min left
+2026-08-25 13:18:23,111 INFO   1300/4589  (1300 kept)  1664s elapsed, ~70 min left
+2026-08-25 13:19:57,483 INFO   1400/4589  (1400 kept)  1758s elapsed, ~67 min left
+2026-08-25 13:21:50,580 INFO   1500/4589  (1500 kept)  1871s elapsed, ~64 min left
+2026-08-25 13:23:27,319 INFO   1600/4589  (1600 kept)  1968s elapsed, ~61 min left
+2026-08-25 13:25:41,756 INFO   1700/4589  (1700 kept)  2102s elapsed, ~60 min left

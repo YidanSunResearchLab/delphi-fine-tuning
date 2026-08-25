@@ -1,0 +1,6 @@
+auc_loss_tolerance,bins_needed_level_only,bins_needed_level_plus_delta4
+0.005,50,20
+0.01,20,20
+0.02,10,8
+0.03,8,6
+0.05,5,4
