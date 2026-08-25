@@ -37,13 +37,25 @@ Thumbs.db
 # Raw export + ID linkage (PHI / re-identification risk):
 **/investigator_nacc*.csv
 **/nacc_pidmap.csv
+# RADC/ROSMAP ID linkage (projid -> pidi; same re-identification risk as the NACC map):
+**/radc_pidmap.csv
 # All tokenized event streams, anywhere (tokenizer output + splits):
 **/*.bin
 Delphi-2M/data/nacc-*/
+Delphi-2M/data/radc-*/
 # Run outputs (all regenerable from scripts — NEVER COMMIT):
 #   out_ad/ = tokenizer + split output (bins, labels.csv, pidmap); out-*/ = checkpoints + eval figures
+#   out_radc/ = the same, for the RADC arm (data_prep/make_dataset_radc.py)
 Delphi-2M/out_ad/
+Delphi-2M/out_radc/
 Delphi-2M/out-*/
+#   eda_round2/eda_out/ = round-2 EDA figures + tables; the source-data CSVs and
+#   cv_folds.csv are participant-level (projid + measurements), so same policy
+Delphi-2M/eda_round2/eda_out/
+#   eda_round3/eda_out/ = round-3 ordinal-scale audit; same policy, plus .cache/ holds a
+#   parquet subset of the NACC export (NACCID already factorised away, but still
+#   participant-level measurements)
+Delphi-2M/eda_round3/eda_out/
 Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
 *.pt
 *.pth
