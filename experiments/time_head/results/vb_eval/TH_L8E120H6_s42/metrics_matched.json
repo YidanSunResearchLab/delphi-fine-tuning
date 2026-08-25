@@ -1,0 +1,512 @@
+{
+  "a": {
+    "horizon": 5,
+    "n_transition_types": 13,
+    "median_auc": 0.6634,
+    "mean_calibration_error": 0.0383,
+    "per_transition": {
+      "Dementia\u2192Death": {
+        "n_at_risk": 1081,
+        "n_events": 292,
+        "auc": 0.5924,
+        "ci": [
+          0.5521,
+          0.6277
+        ],
+        "observed_cif": 0.3014,
+        "predicted": 0.5856
+      },
+      "Dementia\u2192MCI": {
+        "n_at_risk": 1081,
+        "n_events": 77,
+        "auc": 0.7319,
+        "ci": [
+          0.6768,
+          0.7781
+        ],
+        "observed_cif": 0.0717,
+        "predicted": 0.0599
+      },
+      "MCI\u2192Death": {
+        "n_at_risk": 1230,
+        "n_events": 125,
+        "auc": 0.7046,
+        "ci": [
+          0.6508,
+          0.7547
+        ],
+        "observed_cif": 0.1399,
+        "predicted": 0.2555
+      },
+      "MCI\u2192Dementia": {
+        "n_at_risk": 1230,
+        "n_events": 620,
+        "auc": 0.7369,
+        "ci": [
+          0.7082,
+          0.771
+        ],
+        "observed_cif": 0.5556,
+        "predicted": 0.3071
+      },
+      "MCI\u2192Impaired": {
+        "n_at_risk": 1230,
+        "n_events": 132,
+        "auc": 0.6634,
+        "ci": [
+          0.6121,
+          0.708
+        ],
+        "observed_cif": 0.1249,
+        "predicted": 0.1738
+      },
+      "MCI\u2192Normal": {
+        "n_at_risk": 1230,
+        "n_events": 278,
+        "auc": 0.7394,
+        "ci": [
+          0.7033,
+          0.7731
+        ],
+        "observed_cif": 0.25,
+        "predicted": 0.3428
+      },
+      "Impaired\u2192Dementia": {
+        "n_at_risk": 267,
+        "n_events": 30,
+        "auc": 0.645,
+        "ci": [
+          0.5454,
+          0.7365
+        ],
+        "observed_cif": 0.1439,
+        "predicted": 0.1233
+      },
+      "Impaired\u2192MCI": {
+        "n_at_risk": 267,
+        "n_events": 120,
+        "auc": 0.5368,
+        "ci": [
+          0.4535,
+          0.6221
+        ],
+        "observed_cif": 0.4908,
+        "predicted": 0.5113
+      },
+      "Impaired\u2192Normal": {
+        "n_at_risk": 267,
+        "n_events": 151,
+        "auc": 0.6196,
+        "ci": [
+          0.5452,
+          0.6931
+        ],
+        "observed_cif": 0.6249,
+        "predicted": 0.5552
+      },
+      "Normal\u2192Death": {
+        "n_at_risk": 2011,
+        "n_events": 78,
+        "auc": 0.7892,
+        "ci": [
+          0.7359,
+          0.8356
+        ],
+        "observed_cif": 0.0444,
+        "predicted": 0.1432
+      },
+      "Normal\u2192Dementia": {
+        "n_at_risk": 2011,
+        "n_events": 97,
+        "auc": 0.6722,
+        "ci": [
+          0.6192,
+          0.7279
+        ],
+        "observed_cif": 0.053,
+        "predicted": 0.0611
+      },
+      "Normal\u2192MCI": {
+        "n_at_risk": 2011,
+        "n_events": 432,
+        "auc": 0.6412,
+        "ci": [
+          0.6128,
+          0.6701
+        ],
+        "observed_cif": 0.2219,
+        "predicted": 0.3403
+      },
+      "Normal\u2192Impaired": {
+        "n_at_risk": 2011,
+        "n_events": 241,
+        "auc": 0.5233,
+        "ci": [
+          0.4836,
+          0.5642
+        ],
+        "observed_cif": 0.127,
+        "predicted": 0.1879
+      }
+    },
+    "transition_time": {
+      "n": 2442,
+      "r2": -0.104,
+      "mae": 2.1147,
+      "rmse": 3.1975,
+      "bias": -0.2186,
+      "loa": [
+        -6.471106138423809,
+        6.033833792300054
+      ],
+      "spearman": 0.2393
+    },
+    "_seconds": 7.6
+  },
+  "b": {
+    "timing_error": {
+      "Reach \u2265MCI": {
+        "0\u20132 y": {
+          "n": 300,
+          "mae": 2.992,
+          "mae_ci": [
+            2.667,
+            3.321
+          ],
+          "bias": 2.952,
+          "naive_mae": 1.911
+        },
+        "2\u20135 y": {
+          "n": 317,
+          "mae": 2.501,
+          "mae_ci": [
+            2.221,
+            2.778
+          ],
+          "bias": 1.622,
+          "naive_mae": 0.701
+        },
+        "5\u201310 y": {
+          "n": 230,
+          "mae": 3.193,
+          "mae_ci": [
+            2.896,
+            3.464
+          ],
+          "bias": -1.815,
+          "naive_mae": 4.041
+        },
+        ">10 y": {
+          "n": 102,
+          "mae": 6.77,
+          "mae_ci": [
+            6.122,
+            7.389
+          ],
+          "bias": -6.114,
+          "naive_mae": 9.602
+        }
+      },
+      "Dementia": {
+        "0\u20132 y": {
+          "n": 362,
+          "mae": 2.286,
+          "mae_ci": [
+            2.081,
+            2.531
+          ],
+          "bias": 2.248,
+          "naive_mae": 1.76
+        },
+        "2\u20135 y": {
+          "n": 385,
+          "mae": 2.546,
+          "mae_ci": [
+            2.241,
+            2.855
+          ],
+          "bias": 1.752,
+          "naive_mae": 0.736
+        },
+        "5\u201310 y": {
+          "n": 234,
+          "mae": 3.671,
+          "mae_ci": [
+            3.332,
+            4.096
+          ],
+          "bias": 0.361,
+          "naive_mae": 3.96
+        },
+        ">10 y": {
+          "n": 91,
+          "mae": 4.97,
+          "mae_ci": [
+            4.254,
+            5.583
+          ],
+          "bias": -3.737,
+          "naive_mae": 10.043
+        }
+      },
+      "Death": {
+        "0\u20132 y": {
+          "n": 17,
+          "mae": 6.313,
+          "mae_ci": [
+            4.252,
+            8.827
+          ],
+          "bias": 6.313,
+          "naive_mae": 5.422
+        },
+        "2\u20135 y": {
+          "n": 492,
+          "mae": 2.712,
+          "mae_ci": [
+            2.435,
+            3.027
+          ],
+          "bias": 2.054,
+          "naive_mae": 3.324
+        },
+        "5\u201310 y": {
+          "n": 836,
+          "mae": 3.619,
+          "mae_ci": [
+            3.419,
+            3.87
+          ],
+          "bias": -0.191,
+          "naive_mae": 1.215
+        },
+        ">10 y": {
+          "n": 484,
+          "mae": 4.863,
+          "mae_ci": [
+            4.607,
+            5.124
+          ],
+          "bias": -2.444,
+          "naive_mae": 5.998
+        }
+      }
+    },
+    "auc_by_horizon": {
+      "Reach \u2265MCI": {
+        "1": 0.5705,
+        "2": 0.6505,
+        "3": 0.6603,
+        "5": 0.6684,
+        "10": 0.6461
+      },
+      "Dementia": {
+        "1": 0.832,
+        "2": 0.8833,
+        "3": 0.8823,
+        "5": 0.8789,
+        "10": 0.8222
+      },
+      "Death": {
+        "2": 0.6812,
+        "3": 0.7618,
+        "5": 0.7902,
+        "10": 0.8433
+      }
+    },
+    "_seconds": 7.8
+  },
+  "c": {
+    "n_patients": 4078,
+    "mean_jaccard": 0.5992,
+    "mean_jaccard_ci": [
+      0.5885,
+      0.6084
+    ],
+    "mean_jaccard_baseline_carry": 0.5097,
+    "n_patients_alive_years": 3944,
+    "mean_jaccard_alive_years_only": 0.5358,
+    "mean_jaccard_alive_years_only_ci": [
+      0.525,
+      0.5457
+    ],
+    "mean_agreement": 0.6969,
+    "mean_agreement_ci": [
+      0.6875,
+      0.7048
+    ],
+    "mean_agreement_baseline_carry": 0.5868,
+    "macro_iou": 0.426,
+    "per_state_iou": {
+      "Normal": 0.6208,
+      "Impaired": 0.1762,
+      "MCI": 0.3154,
+      "Dementia": 0.398,
+      "Death": 0.6198
+    },
+    "agreement_by_year": [
+      {
+        "year": 1,
+        "n": 4543,
+        "agreement": 0.9487123046445081,
+        "agreement_baseline": 0.9522342064714946
+      },
+      {
+        "year": 2,
+        "n": 4314,
+        "agreement": 0.7848864163189615,
+        "agreement_baseline": 0.808993973110802
+      },
+      {
+        "year": 3,
+        "n": 4078,
+        "agreement": 0.6826875919568416,
+        "agreement_baseline": 0.7464443354585582
+      },
+      {
+        "year": 4,
+        "n": 3750,
+        "agreement": 0.5872,
+        "agreement_baseline": 0.6797333333333333
+      },
+      {
+        "year": 5,
+        "n": 3424,
+        "agreement": 0.5350467289719626,
+        "agreement_baseline": 0.6176985981308412
+      },
+      {
+        "year": 6,
+        "n": 3135,
+        "agreement": 0.5250398724082934,
+        "agreement_baseline": 0.5502392344497608
+      },
+      {
+        "year": 7,
+        "n": 2902,
+        "agreement": 0.5485871812543074,
+        "agreement_baseline": 0.48380427291523087
+      },
+      {
+        "year": 8,
+        "n": 2713,
+        "agreement": 0.5790637670475488,
+        "agreement_baseline": 0.41872465904902323
+      },
+      {
+        "year": 9,
+        "n": 2558,
+        "agreement": 0.6207974980453479,
+        "agreement_baseline": 0.3487099296325254
+      },
+      {
+        "year": 10,
+        "n": 2415,
+        "agreement": 0.6530020703933748,
+        "agreement_baseline": 0.28405797101449276
+      },
+      {
+        "year": 11,
+        "n": 2319,
+        "agreement": 0.6946959896507116,
+        "agreement_baseline": 0.23760241483398017
+      },
+      {
+        "year": 12,
+        "n": 2227,
+        "agreement": 0.7373147732375392,
+        "agreement_baseline": 0.18949259092950158
+      },
+      {
+        "year": 13,
+        "n": 2141,
+        "agreement": 0.7772069126576366,
+        "agreement_baseline": 0.14759458197104158
+      },
+      {
+        "year": 14,
+        "n": 2087,
+        "agreement": 0.8145663632007667,
+        "agreement_baseline": 0.12026832774317202
+      },
+      {
+        "year": 15,
+        "n": 2024,
+        "agreement": 0.858201581027668,
+        "agreement_baseline": 0.08547430830039526
+      }
+    ],
+    "_seconds": 1.7
+  },
+  "d": {
+    "baseline_visit_embedding": {
+      "purity_traj_10nn": 0.474,
+      "purity_baseline_state_10nn": 0.9893,
+      "silhouette_traj_2d": -0.0665,
+      "silhouette_baseline_state_2d": 0.5005
+    },
+    "full_history_LEAKY": {
+      "note": "labels are defined by tokens present in this embedding's own input; recorded for reference, NOT plotted and NOT evidence of prediction",
+      "purity_traj_10nn": 0.6175,
+      "purity_baseline_state_10nn": 0.6169
+    },
+    "chance_purity": {
+      "traj_class": 0.2152,
+      "baseline_state": 0.3228
+    },
+    "within_baseline_state": {
+      "note": "neighbours restricted to the same baseline NACCUDSD state -- removes the path 'embedding knows the current stage, and the stage constrains which trajectory classes are even possible'. THIS is the prognostic number, not purity_traj_10nn",
+      "purity": 0.4761,
+      "chance": 0.4158,
+      "lift": 0.0602,
+      "by_state": {
+        "Normal": {
+          "n": 2011,
+          "purity": 0.3787,
+          "chance": 0.3163,
+          "lift": 0.0624
+        },
+        "Impaired": {
+          "n": 267,
+          "purity": 0.3206,
+          "chance": 0.3049,
+          "lift": 0.0157
+        },
+        "MCI": {
+          "n": 1230,
+          "purity": 0.5332,
+          "chance": 0.4383,
+          "lift": 0.0949
+        },
+        "Dementia": {
+          "n": 1081,
+          "purity": 0.6307,
+          "chance": 0.6029,
+          "lift": 0.0278
+        }
+      }
+    },
+    "_seconds": 29.8
+  },
+  "_meta": {
+    "checkpoint": "ckpt_under_test.pt",
+    "dataset": "nacc-dedup-s42",
+    "split": "test",
+    "n_patients": 4589,
+    "n_mc": 100,
+    "horizon": 5,
+    "split_arg": "test",
+    "cohort": "matched",
+    "n_evaluable": 7989,
+    "n_in_cohort": 4589,
+    "n_dropped": 3400,
+    "rule": "train.py filter_cohort: >=4 visits OR >=2 visits + a NACCUDSD transition",
+    "generated_at": "2026-08-25T00:04:53"
+  },
+  "a_supp": {
+    "pearson_r": 0.6128,
+    "mae": 0.0928,
+    "n_obs_transitions": 7041.0,
+    "n_pred_transitions": 15566.479999999834
+  }
+}

@@ -1,0 +1,79 @@
+train split: 800,110 events, cohort 16,262 patients
+
+====================================================================================================
+[0] THE TRUE TARGET -- real-visit-to-real-visit gaps, read off the .bin (no get_batch, no synthetic tokens)
+====================================================================================================
+  true visit gaps (years)            n=  74,242  p5    0.758  p25    0.994  med    1.112  p75    1.700  p95    3.551  mean    1.520  cv 0.727
+                                     an exponential has cv = 1 exactly, and ANY mixture of exponentials has cv >= 1
+
+====================================================================================================
+L12E120H12_s42   12L/12H/120d   t_min 30.44 d   ignore_tokens 0-21
+====================================================================================================
+
+[1] WHERE THE RATE MASS SITS  (training mode, logits UNMASKED, padding='random' = what train.py uses)
+  P(No-event) %                      n=  51,032  p5    0.000  p25    0.001  med    0.002  p75    0.003  p95    0.008  mean    0.003
+  P(tokens 0-21, all ignored) %      n=  51,032  p5    0.001  p25    0.002  med    0.004  p75    0.008  p95    0.023  mean    0.007
+  P(content 22-110) %                n=  51,032  p5   99.977  p25   99.992  med   99.996  p75   99.998  p95   99.999  mean   99.993
+  lambda_full / lambda_content       n=  51,032  p5    1.000  p25    1.000  med    1.000  p75    1.000  p95    1.000  mean    1.000
+
+  -> generation and validation mask tokens 0-21, so their clock is 1.000x SLOWER (median) than the clock that was trained.
+     ad_engine's comment implies ~4x; backing it out of time_head_probe implies ~1.17x. Measured: 1.000x
+
+[2] THE SUPERVISED dt vs THE TRUE GAP DISTRIBUTION
+  true visit gaps (years)            n=  74,242  p5    0.758  p25    0.994  med    1.112  p75    1.700  p95    3.551  mean    1.520
+  dt loss_dt actually sees (years)   n=  51,032  p5    0.205  p25    0.928  med    1.309  p75    3.242  p95    9.273  mean    2.648
+
+  -> the supervised gap is 1.177x the true gap at the median (LONG-biased)
+     43.0% of real input positions lose their supervision because the next token in the merged stream is a No-event token
+     28.6% of the non-padding tokens the model is fed are synthetic No-event; 46.5% of positions are scored
+
+[3] padding='random' (train.py) vs 'regular' (estimate_loss, decompose, probe)
+                           loss_ce   loss_dt  med dt (y)  % dropped to No-ev  lam ratio  % input No-ev
+  random                    2.6633    7.4726       1.309                43.0      1.000           28.6
+  regular                   2.6203    7.3660       1.322                40.0      1.000           25.9
+
+[4] SWEEP no_event_token_rate  (padding='random', one per N years; 0 = off)
+    rate   loss_ce   loss_dt  med dt (y)  % dropped  lam ratio  P(No-ev) %  % input No-ev
+       0    2.6336    8.6969       2.716        0.0      1.000       0.004            0.0
+       2    2.9924    6.9511       0.997       65.8      1.000       0.001           50.4
+       5    2.6656    7.4583       1.303       43.4      1.000       0.002           29.5
+      10    2.5994    7.7726       1.736       27.7      1.000       0.002           17.5
+      20    2.5579    8.0250       2.031       16.1      1.000       0.002            9.5
+
+====================================================================================================
+L8E120H6_s42   8L/6H/120d   t_min 30.44 d   ignore_tokens 0-21
+====================================================================================================
+
+[1] WHERE THE RATE MASS SITS  (training mode, logits UNMASKED, padding='random' = what train.py uses)
+  P(No-event) %                      n=  51,032  p5    0.001  p25    0.002  med    0.003  p75    0.004  p95    0.010  mean    0.004
+  P(tokens 0-21, all ignored) %      n=  51,032  p5    0.002  p25    0.004  med    0.006  p75    0.011  p95    0.026  mean    0.009
+  P(content 22-110) %                n=  51,032  p5   99.974  p25   99.989  med   99.994  p75   99.996  p95   99.998  mean   99.991
+  lambda_full / lambda_content       n=  51,032  p5    1.000  p25    1.000  med    1.000  p75    1.000  p95    1.000  mean    1.000
+
+  -> generation and validation mask tokens 0-21, so their clock is 1.000x SLOWER (median) than the clock that was trained.
+     ad_engine's comment implies ~4x; backing it out of time_head_probe implies ~1.17x. Measured: 1.000x
+
+[2] THE SUPERVISED dt vs THE TRUE GAP DISTRIBUTION
+  true visit gaps (years)            n=  74,242  p5    0.758  p25    0.994  med    1.112  p75    1.700  p95    3.551  mean    1.520
+  dt loss_dt actually sees (years)   n=  51,032  p5    0.205  p25    0.928  med    1.309  p75    3.242  p95    9.273  mean    2.648
+
+  -> the supervised gap is 1.177x the true gap at the median (LONG-biased)
+     43.0% of real input positions lose their supervision because the next token in the merged stream is a No-event token
+     28.6% of the non-padding tokens the model is fed are synthetic No-event; 46.5% of positions are scored
+
+[3] padding='random' (train.py) vs 'regular' (estimate_loss, decompose, probe)
+                           loss_ce   loss_dt  med dt (y)  % dropped to No-ev  lam ratio  % input No-ev
+  random                    2.7098    7.4741       1.309                43.0      1.000           28.6
+  regular                   2.6639    7.3644       1.322                40.0      1.000           25.9
+
+[4] SWEEP no_event_token_rate  (padding='random', one per N years; 0 = off)
+    rate   loss_ce   loss_dt  med dt (y)  % dropped  lam ratio  P(No-ev) %  % input No-ev
+       0    2.7071    8.8290       2.716        0.0      1.000       0.004            0.0
+       2    3.0389    6.9539       0.997       65.8      1.000       0.002           50.4
+       5    2.7087    7.4591       1.303       43.4      1.000       0.003           29.5
+      10    2.6500    7.7702       1.736       27.7      1.000       0.003           17.5
+      20    2.6161    8.0167       2.031       16.1      1.000       0.003            9.5
+
+[ref] true visit gaps: median 1.112 y, mean 1.520 y, cv 0.727
+[no_event_probe] -> /storage3/fs1/mdan/Active/secure-ad-comorbidity/huang.yi1/AD0820_capacity/results/time_head/no_event_probe.csv
+DONE

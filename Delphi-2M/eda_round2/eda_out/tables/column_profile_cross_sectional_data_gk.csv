@@ -1,0 +1,25 @@
+column,dtype,codebook_type,grain,n_nonnull,pct_nonnull,nunique,min,max,mean,median,top10,codebook_note
+projid,int64,id,person,4428,100.0,4428,9121.0,99982430.0,44146948.5734,39853924.5,9121:1; 21073:1; 33027:1; 45071:1; 46112:1; 130005:1; 204228:1; 228190:1; 246264:1; 285563:1,RADC participant id; join key across all three tables
+study,str,nominal,person,4428,100.0,3,,,,,MAP:2580; ROS:1540; LATC:308,ROS / MAP / LATC cohort label
+apoe_genotype,float64,nominal,person,3227,72.88,6,22.0,44.0,31.8928,33.0,33.0:2003; 34.0:676; 23.0:403; 24.0:72; 44.0:56; 22.0:17,"22/23/24/33/34/44; NOT ordinal -- e2 is protective, e4 risk"
+age_first_ad_dx,float64,cont,person,1164,26.29,1076,66.2505,107.2279,87.7437,88.1547,87.0034223134839:3; 88.517453798768:3; 87.3347022587269:3; 85.4236824093087:2; 93.1362080766598:2; 94.3244353182752:2; 88.8131416837782:2; 81.7850787132101:2; 91.7700205338809:2; 82.1683778234086:2,"age at FIRST cycle with dcfdx in {4,5}; missing if demented at baseline"
+cogng_demog_slope,float64,cont,person,4005,90.45,4005,-0.4126,0.1644,-0.0012,0.0136,-0.0738807957397941:1; -0.150170715118605:1; -0.0682693815551002:1; 0.0771926096324959:1; -0.0112966176178015:1; -0.035899238041898:1; 0.0159335423322898:1; 0.108408117781719:1; -0.043714063874564:1; -0.193534552861251:1,random slope of cogn_global from an LME over the WHOLE follow-up
+age_bl,float64,cont,person,4428,100.0,3597,36.5038,102.1465,78.1665,78.9268,86.4777549623546:5; 78.6803559206023:4; 82.92128678987:4; 71.6030116358658:4; 82.652977412731:4; 77.2238193018481:4; 83.7973990417522:4; 84.6406570841889:4; 70.8062970568104:4; 70.2970568104038:3,"age at baseline assessment, (visit date - dob)/365.25; NOT capped"
+died,int64,binary,person,4428,100.0,2,0.0,1.0,0.6199,1.0,1:2745; 0:1683,1 died / 0 alive as of the data freeze
+educ,int64,cont,person,4428,100.0,31,0.0,30.0,15.991,16.0,16:837; 18:702; 12:600; 20:393; 14:343; 13:237; 19:180; 21:178; 17:174; 15:151,"years of regular school, reported at baseline"
+msex,int64,binary,person,4428,100.0,2,0.0,1.0,0.2685,0.0,0:3239; 1:1189,1 male / 0 female
+ldai_bl,float64,cont,person,4401,99.39,9,0.0,6.0,0.4544,0.0,0.0:2467; 0.4:463; 1.0:377; 0.1:304; 2.5:282; 0.2:210; 0.8:201; 4.5:55; 6.0:42,"lifetime daily alcohol intake at baseline, drinks/day"
+smoking_bl,float64,ordinal,person,4410,99.59,3,0.0,2.0,0.3556,0.0,0.0:2937; 1.0:1378; 2.0:95,"0 never / 1 former / 2 current, at baseline"
+braaksc,float64,ordinal,person,2207,49.84,7,0.0,6.0,3.6575,4.0,4.0:727; 5.0:577; 3.0:514; 2.0:199; 1.0:135; 6.0:34; 0.0:21,"Braak NFT stage 0-6, ascending severity; AUTOPSY ONLY"
+ceradsc,float64,ordinal,person,2207,49.84,4,1.0,4.0,2.246,2.0,2.0:802; 1.0:685; 4.0:508; 3.0:212,CERAD 1 definite / 2 probable / 3 possible / 4 no AD -- REVERSE coded; AUTOPSY ONLY
+gpath,float64,cont,person,1981,44.74,1890,0.0,3.3217,0.77,0.6714,0.0:9; 0.00659021163612145:8; 0.017591750944256:7; 0.00586391698141865:6; 0.0216131514170195:6; 0.00329510581806073:5; 0.00988531745418217:5; 0.0117278339628373:4; 0.0157492344356008:4; 0.0164755290903036:4,"global AD pathology burden, 3 measures x 5 regions; AUTOPSY ONLY"
+pmi,float64,cont,person,2225,50.25,742,0.75,313.1333,10.147,7.0,5.0:40; 6.0:38; 6.5:28; 4.0:27; 4.5:27; 5.75:22; 6.16666666666667:22; 5.83333333333333:21; 6.25:19; 8.0:19,post-mortem interval (hours); AUTOPSY ONLY -- presence alone implies death
+amylsqrt_est_8reg,float64,cont,person,2183,49.3,1910,0.0,3.0909,1.0484,1.1132,0.0:273; 0.0656670073013013:2; 1.84565484077658:1; 1.62684324708945:1; 1.88852375083015:1; 1.3756497039406:1; 0.772524762503595:1; 2.1518343614875:1; 2.80909375817966:1; 0.83559164021328:1,"sqrt amyloid density, 8 regions; AUTOPSY ONLY"
+lewydx_st4,float64,ordinal,person,2122,47.92,4,0.0,3.0,0.582,0.0,0.0:1631; 3.0:294; 2.0:156; 1.0:41,Lewy body disease stage; AUTOPSY ONLY
+tangsqrt_est_8reg,float64,cont,person,2184,49.32,2179,0.0,6.2619,1.3234,1.0565,0.0:6; 4.68266372114883:1; 1.18881043738027:1; 1.17098887001291:1; 1.10250280223629:1; 0.516092134643992:1; 2.34256248974376:1; 1.12626190826635:1; 2.69225821897533:1; 0.953134850693272:1,"sqrt tangle density, 8 regions; AUTOPSY ONLY"
+tdp_st4,float64,ordinal,person,2099,47.4,4,0.0,3.0,1.1491,1.0,0.0:962; 3.0:530; 1.0:392; 2.0:215,TDP-43 stage; AUTOPSY ONLY
+arteriol_scler,float64,ordinal,person,2194,49.55,4,0.0,3.0,1.1267,1.0,1.0:725; 0.0:702; 2.0:554; 3.0:213,arteriolosclerosis grade; AUTOPSY ONLY
+caa_4gp,float64,ordinal,person,2174,49.1,4,0.0,3.0,1.3335,1.0,1.0:878; 2.0:520; 0.0:449; 3.0:327,"cerebral amyloid angiopathy, 4 groups; AUTOPSY ONLY"
+cvda_4gp2,float64,ordinal,person,2208,49.86,4,0.0,3.0,1.1979,1.0,1.0:1107; 2.0:580; 0.0:395; 3.0:126,"cerebral atherosclerosis, 4 groups; AUTOPSY ONLY"
+ci_num2_mct,float64,binary,person,2192,49.5,2,0.0,1.0,0.3266,0.0,0.0:1476; 1.0:716,>=1 chronic microinfarct; AUTOPSY ONLY
+ci_num2_tct,float64,binary,person,2192,49.5,2,0.0,1.0,0.5132,1.0,1.0:1125; 0.0:1067,>=1 chronic infarct; AUTOPSY ONLY

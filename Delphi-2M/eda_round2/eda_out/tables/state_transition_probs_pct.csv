@@ -1,0 +1,5 @@
+from_state,normal 27-30,borderline 24-26,mild-mod 18-23,severe 0-17
+normal 27-30,87.82,9.86,2.0,0.31
+borderline 24-26,43.95,32.55,20.21,3.3
+mild-mod 18-23,8.4,16.27,47.64,27.68
+severe 0-17,0.41,0.65,10.41,88.53

@@ -1,0 +1,388 @@
+{
+  "_generated_by": "Delphi-2M/eda_round2/s2_inventory.py",
+  "_codebook": "data/RADC/RADC_codebook_data_set_1736_08-13-2026.pdf (48 variables)",
+  "tables": {
+    "cross_sectional": {
+      "file": "cross-sectional-data-gk.xlsx",
+      "grain": "person",
+      "key": [
+        "projid"
+      ],
+      "n_rows": 4428
+    },
+    "longitudinal": {
+      "file": "longitudinal_data_gk.xlsx",
+      "grain": "visit",
+      "key": [
+        "projid",
+        "fu_year"
+      ],
+      "n_rows": 36138
+    },
+    "rosmap_clinical": {
+      "file": "ROSMAP_clinical.csv",
+      "grain": "person",
+      "key": [
+        "projid"
+      ],
+      "n_rows": 3584,
+      "coverage": "ROS+MAP only -- LATC participants absent",
+      "warning": "ages are top-coded '90+'; do NOT use for the age axis"
+    }
+  },
+  "roles": {
+    "person_id": "projid",
+    "cohort": "study (cross-sectional / longitudinal); Study (ROSMAP_clinical)",
+    "visit_index": "fu_year",
+    "age_at_visit": "NOT PRESENT -- derived as age_bl + fu_year",
+    "baseline_age": "age_bl (cross-sectional, uncapped)",
+    "age_death": "age_death (ROSMAP_clinical ONLY, top-coded)",
+    "per_visit_diagnosis": "NOT PRESENT -- dcfdx is absent from this release",
+    "last_visit_diagnosis": "dcfdx_lv (ROSMAP_clinical, person-level)",
+    "final_diagnosis": "cogdx (ROSMAP_clinical, person-level, autopsy-informed)",
+    "cognition_composite": "cogn_global (global only -- the 5 domain scores cogn_ep/se/po/ps/wo are NOT in this release)",
+    "raw_tests": "NOT PRESENT -- no cts_* item scores except the estimated MMSE cts_estmmse30",
+    "demographics": [
+      "msex",
+      "educ",
+      "race (ROSMAP_clinical)",
+      "spanish (ROSMAP_clinical)"
+    ],
+    "genetics": [
+      "apoe_genotype"
+    ],
+    "neuropathology": [
+      "braaksc",
+      "ceradsc",
+      "gpath",
+      "amylsqrt_est_8reg",
+      "tangsqrt_est_8reg",
+      "tdp_st4",
+      "lewydx_st4",
+      "arteriol_scler",
+      "caa_4gp",
+      "cvda_4gp2",
+      "ci_num2_mct",
+      "ci_num2_tct",
+      "pmi"
+    ],
+    "outcome_ad": "age_first_ad_dx (cross-sectional, uncapped)"
+  },
+  "reverse_coded": {
+    "r_stroke": "4 = NOT present",
+    "r_depres": "4 = NOT present",
+    "ceradsc": "4 = no AD, 1 = definite AD"
+  },
+  "top_coded_pct_of_nonnull": {
+    "age_at_visit_max": 30.81,
+    "age_death": 47.39,
+    "age_first_ad_dx": 35.1
+  },
+  "variables": {
+    "projid": {
+      "type": "id",
+      "grain": "person",
+      "codebook_note": "RADC participant id; join key across all three tables"
+    },
+    "study": {
+      "type": "nominal",
+      "grain": "person",
+      "codebook_note": "ROS / MAP / LATC cohort label"
+    },
+    "apoe_genotype": {
+      "type": "nominal",
+      "grain": "person",
+      "codebook_note": "22/23/24/33/34/44; NOT ordinal -- e2 is protective, e4 risk"
+    },
+    "age_first_ad_dx": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "age at FIRST cycle with dcfdx in {4,5}; missing if demented at baseline"
+    },
+    "cogng_demog_slope": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "random slope of cogn_global from an LME over the WHOLE follow-up"
+    },
+    "age_bl": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "age at baseline assessment, (visit date - dob)/365.25; NOT capped"
+    },
+    "died": {
+      "type": "binary",
+      "grain": "person",
+      "codebook_note": "1 died / 0 alive as of the data freeze"
+    },
+    "educ": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "years of regular school, reported at baseline"
+    },
+    "msex": {
+      "type": "binary",
+      "grain": "person",
+      "codebook_note": "1 male / 0 female"
+    },
+    "ldai_bl": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "lifetime daily alcohol intake at baseline, drinks/day"
+    },
+    "smoking_bl": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "0 never / 1 former / 2 current, at baseline"
+    },
+    "braaksc": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "Braak NFT stage 0-6, ascending severity; AUTOPSY ONLY"
+    },
+    "ceradsc": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "CERAD 1 definite / 2 probable / 3 possible / 4 no AD -- REVERSE coded; AUTOPSY ONLY"
+    },
+    "gpath": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "global AD pathology burden, 3 measures x 5 regions; AUTOPSY ONLY"
+    },
+    "pmi": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "post-mortem interval (hours); AUTOPSY ONLY -- presence alone implies death"
+    },
+    "amylsqrt_est_8reg": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "sqrt amyloid density, 8 regions; AUTOPSY ONLY"
+    },
+    "lewydx_st4": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "Lewy body disease stage; AUTOPSY ONLY"
+    },
+    "tangsqrt_est_8reg": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "sqrt tangle density, 8 regions; AUTOPSY ONLY"
+    },
+    "tdp_st4": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "TDP-43 stage; AUTOPSY ONLY"
+    },
+    "arteriol_scler": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "arteriolosclerosis grade; AUTOPSY ONLY"
+    },
+    "caa_4gp": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "cerebral amyloid angiopathy, 4 groups; AUTOPSY ONLY"
+    },
+    "cvda_4gp2": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "cerebral atherosclerosis, 4 groups; AUTOPSY ONLY"
+    },
+    "ci_num2_mct": {
+      "type": "binary",
+      "grain": "person",
+      "codebook_note": ">=1 chronic microinfarct; AUTOPSY ONLY"
+    },
+    "ci_num2_tct": {
+      "type": "binary",
+      "grain": "person",
+      "codebook_note": ">=1 chronic infarct; AUTOPSY ONLY"
+    },
+    "fu_year": {
+      "type": "time",
+      "grain": "visit",
+      "codebook_note": "follow-up cycle index; 0 = baseline. THE ONLY time field in the release"
+    },
+    "log_hcrp": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "log C-reactive protein"
+    },
+    "log_hil6": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "log interleukin-6"
+    },
+    "log_htnfa": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "log TNF-alpha"
+    },
+    "gfr_mdrs": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "estimated glomerular filtration rate (MDRD)"
+    },
+    "glucose": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "blood glucose"
+    },
+    "hba1c": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "hemoglobin A1c"
+    },
+    "hdlchlstrl": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "HDL cholesterol"
+    },
+    "ldlchlstrl": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "LDL cholesterol"
+    },
+    "r_stroke": {
+      "type": "ordinal",
+      "grain": "visit",
+      "codebook_note": "clinician stroke dx: 1 highly probable / 2 probable / 3 possible / 4 NOT present -- REVERSE coded"
+    },
+    "cogn_global": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "global cognition z, mean of 19 tests; z uses the BASELINE-cycle cohort mean/sd"
+    },
+    "cts_estmmse30": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "estimated MMSE, 0-30 scale"
+    },
+    "r_depres": {
+      "type": "ordinal",
+      "grain": "visit",
+      "codebook_note": "clinician major depression dx: 1 highly probable ... 4 NOT present -- REVERSE coded"
+    },
+    "bmi": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "body mass index, measured at each visit"
+    },
+    "dbp_avg": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "diastolic blood pressure, averaged"
+    },
+    "hypertension_cum": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "self-reported hypertension EVER UP TO this cycle -- cumulative, monotone"
+    },
+    "sbp_avg": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "systolic blood pressure, averaged"
+    },
+    "dm_cum": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "self-reported diabetes ever up to this cycle -- cumulative, monotone"
+    },
+    "chf_cum": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "congestive heart failure ever up to this cycle -- cumulative, monotone"
+    },
+    "claudication_cum": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "claudication ever up to this cycle -- cumulative, monotone"
+    },
+    "heart_cum": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "heart condition ever up to this cycle -- cumulative, monotone"
+    },
+    "antihyp_rx": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "antihypertensive taken in the 2 weeks before THIS visit -- point-in-time"
+    },
+    "diabetes_rx": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "diabetes medication at this visit -- point-in-time"
+    },
+    "statin_rx": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "statin at this visit -- point-in-time"
+    },
+    "ad_rx": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "AD medication at this visit -- point-in-time"
+    },
+    "berlin_risk_class": {
+      "type": "binary",
+      "grain": "visit",
+      "codebook_note": "Berlin questionnaire high risk of sleep apnea"
+    },
+    "psqi_sum": {
+      "type": "cont",
+      "grain": "visit",
+      "codebook_note": "Pittsburgh sleep quality index summary"
+    },
+    "Study": {
+      "type": "nominal",
+      "grain": "person",
+      "codebook_note": "cohort label in the ROSMAP release"
+    },
+    "race": {
+      "type": "nominal",
+      "grain": "person",
+      "codebook_note": "self-reported race"
+    },
+    "spanish": {
+      "type": "nominal",
+      "grain": "person",
+      "codebook_note": "Spanish/Hispanic ethnicity, 1 yes / 2 no"
+    },
+    "age_at_visit_max": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "age at last visit -- DE-IDENTIFIED, top coded as the string '90+'"
+    },
+    "age_death": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "age at death -- DE-IDENTIFIED, top coded as the string '90+'"
+    },
+    "cts_mmse30_first_ad_dx": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "MMSE at the first AD dx cycle"
+    },
+    "cts_mmse30_lv": {
+      "type": "cont",
+      "grain": "person",
+      "codebook_note": "MMSE at the LAST valid cycle"
+    },
+    "cogdx": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "FINAL consensus cognitive dx (post-mortem informed for autopsied)"
+    },
+    "dcfdx_lv": {
+      "type": "ordinal",
+      "grain": "person",
+      "codebook_note": "clinical dx at the LAST valid cycle -- 1 NCI / 2 MCI / 3 MCI+ / 4 AD / 5 AD+ / 6 other dementia"
+    },
+    "individualID": {
+      "type": "id",
+      "grain": "person",
+      "codebook_note": "Synapse/ROSMAP identifier"
+    }
+  }
+}

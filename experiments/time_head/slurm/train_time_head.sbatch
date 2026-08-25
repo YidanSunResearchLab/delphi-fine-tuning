@@ -55,7 +55,8 @@ mkdir -p "$OUT"
 CTLRUN="$BASE/runs/${CTL}_s${SEED}"
 echo "=============================================================="
 echo " time-head task $IDX/$(( $(wc -l < "$EXP/manifest.tsv") - 1 ))"
-echo "   arm      $ARM   (${NL}L / ${NH}H / ${NE}d + a $(( NE + 1 ))-param time head)"
+echo "   arm      $ARM   (${NL}L / ${NH}H / ${NE}d, $NP params)"
+echo "   config   $CFG"
 echo "   params   $NP"
 echo "   seed     $SEED"
 echo "   control  $CTLRUN  $( [ -f "$CTLRUN/train.log" ] && echo '(present)' || echo '(MISSING -- analysis will have nothing to pair against)' )"
@@ -76,17 +77,21 @@ for s, e in exp.items():
         sys.exit(f"FATAL: {s}.bin has {n:,} events, expected {e:,} -- wrong dataset")
 print("  dataset fingerprint ok (train 800,110 / val 114,143 / test 228,057)")
 PY
-# The head must actually exist in the model this env builds. Cheap here, and it fails the
-# task in 2 s instead of producing a 40-minute run that silently trained the control again.
-python - <<'PY'
-import sys
+# Every key this arm's config sets must actually exist in the model this env builds.
+# Cheap here, and it fails the task in 2 s instead of producing a 40-minute run that silently
+# trained the control again under a key the tree does not understand.
+CFG="$CFG" python - <<'PY'
+import os, re, sys
 sys.path.insert(0, ".")
 from dataclasses import fields
 from delphi.model import DelphiConfig
-if "time_head" not in {f.name for f in fields(DelphiConfig)}:
-    sys.exit("FATAL: this delphi/model.py has no time_head -- the tree on the cluster is "
-             "older than experiments/time_head/. Sync Delphi-2M/ before submitting.")
-print("  delphi.model supports time_head")
+known = {f.name for f in fields(DelphiConfig)}
+want = set(re.findall(r"^(time_head|dt_target) *=", open(os.environ["CFG"]).read(), re.M))
+missing = sorted(want - known)
+if missing:
+    sys.exit(f"FATAL: delphi/model.py has no {missing} -- the tree on the cluster is older "
+             f"than experiments/time_head/. Sync Delphi-2M/ before submitting.")
+print(f"  delphi.model supports {sorted(want) or 'the delivered keys'}")
 PY
 
 # ---------------------------------------------------------------- run
@@ -112,7 +117,6 @@ cat > "$OUT/run_meta.json" <<JSON
   "run": "$RUN",
   "tag": "$ARM",
   "control": "${CTL}_s${SEED}",
-  "time_head": true,
   "seed": $SEED,
   "n_layer": $NL,
   "n_head": $NH,
@@ -126,7 +130,8 @@ cat > "$OUT/run_meta.json" <<JSON
   "threads": ${OMP_NUM_THREADS},
   "wall_seconds": $(( END - START )),
   "smoke": "${SMOKE:-}",
-  "config": "$CFG"
+  "config": "$CFG",
+  "overrides": "$(grep -E '^(time_head|dt_target) *=' "$CFG" | tr '\n' ';')"
 }
 JSON
 

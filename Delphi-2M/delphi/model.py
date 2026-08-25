@@ -138,6 +138,47 @@ class AgeEncoding(nn.Module):
         #x = self.wae[:x.size(0)]
         return y #self.dropout(x)
     
+def next_visit_dt(idx, age, ignore=None):
+    """The forward gap: for each position, (the next STRICTLY LATER age in the stream) - (its
+    own age), in the same units as `age` (days).
+
+    `ignore`: token ids that do NOT count as "the next event". None (default) counts every
+    non-padding token, so the answer is "time to the next entry in the stream" -- which
+    includes get_batch's synthetic No-event markers. Passing ignore_tokens instead gives
+    "time to the next REAL event", which is what generate() is actually asked to reproduce,
+    since it masks those tokens and can never emit one. Which of the two matches the true
+    visit-gap distribution is an empirical question; experiments/time_head/dt_ablation.py
+    measures both.
+
+    Returns (dt, ok). `ok` is False where there is no later age -- the subject's last visit --
+    i.e. right-censored, no answer to score against. dt is set to 1.0 there so callers never
+    see an inf; use `ok` to mask.
+
+    This is the correct target for the time-to-next-event objective, and it is deliberately a
+    masked min over the (t, t) age table rather than "the first j > i with a different age":
+    that way it does not rely on the stream being perfectly sorted, and the strict `>` drops
+    co-occurring (same-visit) tokens for free, so every token of a visit gets the same answer.
+
+    Lives here, at module level, so `experiments/time_head/dt_ablation.py` can measure exactly
+    what the loss uses instead of reimplementing it and drifting.
+    """
+    t = age.size(1)
+    counts = idx > 0                                          # not padding
+    if ignore is not None:
+        for k in ignore:
+            if k != 0:                                        # 0 is padding, already excluded
+                counts = counts & (idx != k)
+    later = age.unsqueeze(1)                                  # (b, 1, t) indexes j
+    mine = age.unsqueeze(2)                                   # (b, t, 1) indexes i
+    cand = (later > mine) & counts.unsqueeze(1)               # strictly later, and an event
+    BIG = torch.finfo(age.dtype).max
+    big = torch.full_like(later.expand(-1, t, -1), BIG)
+    nxt = torch.where(cand, later.expand(-1, t, -1), big).min(-1).values
+    ok = nxt < BIG
+    dt = torch.clamp(nxt - age, min=1.0)
+    return torch.where(ok, dt, torch.ones_like(dt)), ok
+
+
 @dataclass
 class DelphiConfig:
     block_size: int = 1024
@@ -164,6 +205,32 @@ class DelphiConfig:
     # why (loss_dt is 73% of validation loss and moved by 0.10% of itself over a 6.9x
     # parameter range -- the capacity sweep's finding 2).
     time_head: bool = False
+    # WHAT loss_dt is trained to predict.
+    #
+    # "gather"      -- the delivered behaviour, and what every existing checkpoint was trained
+    #                  with. dt = targets_age - age, then REPLACED by the dt of the last
+    #                  position the attention mask lets you see (see the gather in forward).
+    #                  For the k-1 non-final tokens of a k-token visit that is the gap BEFORE
+    #                  their own visit, not the gap after it -- backward-looking, and already
+    #                  computable from their own input. Measured on the real split: 73.6% of
+    #                  scored positions are trained on another position's dt, and that subset
+    #                  runs 1.42x (median) / 1.97x (mean) longer than the true visit gaps,
+    #                  while the 26.4% that keep their own dt sit at 0.95x / 1.04x.
+    #
+    # "next_visit"  -- the fix. dt = (the next STRICTLY LATER age in the stream) - (my own
+    #                  age), i.e. the real time to the next visit, forward-looking, identical
+    #                  for every token of a visit. Positions with no later age are censored
+    #                  and are dropped from loss_dt (they are dropped from loss_dt ONLY --
+    #                  loss_ce still scores them, since "which token comes next" is
+    #                  well-defined even for a co-occurring target).
+    #
+    # "next_event"  -- same, but only REAL events count as "the next one": get_batch's
+    #                  synthetic No-event markers are skipped over. This is what generate() is
+    #                  asked to reproduce, since it masks those tokens and can never emit one.
+    #
+    # Default is "gather" on purpose: it keeps every delivered checkpoint bit-identical and
+    # keeps the capacity sweep's numbers comparable. Flip it per-run to measure the fix.
+    dt_target: str = "gather"
 
 
 def load_checkpoint(ckpt_path, device="cpu", expect_vocab_size=None,
@@ -405,8 +472,28 @@ class Delphi(nn.Module):
             # a pure safety net independent of t_min.
             lse = torch.clamp(lse, min=-60.0, max=60.0)
             lse = - torch.log(torch.exp(-lse) + self.config.t_min)
-            dt = torch.clamp(targets_age - age, min=1.0)
-            if self.config.mask_ties:
+            # ---- WHAT the timing objective is asked to predict --------------------------
+            # dt_target="next_visit": the real forward gap. get_batch emits the stream sorted
+            # by age, so the next STRICTLY LATER age is the next visit, and every token of a
+            # visit gets the same, correct answer. Positions with no later age are censored --
+            # we do not know when that subject's next visit would have been -- so they are
+            # dropped from loss_dt (only; loss_ce keeps them).
+            #
+            # Written as a masked min over the (t, t) age table rather than as "the first j > i
+            # with a different age" so it does not depend on the stream being perfectly sorted;
+            # the strict > also excludes the co-occurring tokens for free. Same cost as the
+            # attention mask that is already built above.
+            dt_ok = None
+            if self.config.dt_target == "next_visit":
+                dt, dt_ok = next_visit_dt(idx, age)
+            elif self.config.dt_target == "next_event":
+                dt, dt_ok = next_visit_dt(idx, age, ignore=self.config.ignore_tokens)
+            elif self.config.dt_target != "gather":
+                raise ValueError(f"dt_target must be 'gather', 'next_visit' or 'next_event', "
+                                 f"got {self.config.dt_target!r}")
+            else:
+                dt = torch.clamp(targets_age - age, min=1.0)
+            if self.config.dt_target == "gather" and self.config.mask_ties:
                 # squeeze(1), not squeeze((1, 2)): the indices are (b, 1, t) and only the
                 # head axis is meant to go. squeeze((1, 2)) also dropped the TIME axis when
                 # t == 1, giving (b,) against a (b, 1) dt -- "Index tensor must have the same
@@ -418,7 +505,13 @@ class Delphi(nn.Module):
             ldt = - torch.log(dt + self.config.t_min).view(-1)
             
             loss_dt = -(lse.reshape(-1) - torch.exp(lse.reshape(-1) - ldt.reshape(-1))) ## Exponential log-likelihood (real statistics, TM)
-            loss_dt = torch.mean(loss_dt[pass_tokens]) 
+            # loss_ce and loss_dt share pass_tokens EXCEPT for censoring: a position in the
+            # last visit has no later age, so under dt_target="next_visit" there is no answer
+            # to score its timing against. Dropping it is the honest thing -- the old target
+            # fed those positions the backward gap instead, which is where a large part of the
+            # inflation came from. loss_ce is unaffected either way.
+            dt_pass = pass_tokens if dt_ok is None else (pass_tokens & dt_ok.reshape(-1))
+            loss_dt = torch.mean(loss_dt[dt_pass])
             
             # Both losses combined
             # loss = loss_ce + loss_dt
@@ -517,7 +610,7 @@ class Delphi(nn.Module):
         return optimizer
 
     @torch.no_grad()
-    def generate(self, idx, age, max_new_tokens=100, max_age=85*365.25, no_repeat=True, termination_tokens=None, extra_ignore=None):
+    def generate(self, idx, age, max_new_tokens=100, max_age=85*365.25, no_repeat=True, termination_tokens=None, extra_ignore=None, visit_sizes=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -531,6 +624,29 @@ class Delphi(nn.Module):
         death reasons.
         extra_ignore: list[int] - additional token ids to mask out during generation
         (e.g. [1] to suppress No-event tokens that otherwise dominate sampling).
+
+        visit_sizes: 1-D array of observed tokens-per-visit counts, or None (default) for the
+        delivered behaviour. When given, generation emits a WHOLE VISIT per step instead of a
+        single token: it samples the time to the next visit as usual, then draws k tokens at
+        THAT SAME AGE, with k drawn from `visit_sizes`.
+
+        Why this is needed: the real data records ~4 tokens at one age per visit (measured:
+        mean 4.11, median 2, p95 16), but one-token-at-a-time sampling adds a strictly
+        positive dt every time -- co-locating 4 tokens needs 3 consecutive draws of dt ~ 0,
+        which happens 3.8% of the time. So one real visit becomes ~4 simulated steps and the
+        trajectory runs 2.5x too slow (measured: 9.27 y to reach Dementia against a real
+        3.67 y). See experiments/time_head/gen_steps_probe.py.
+
+        Why the extra tokens reuse the SAME logits instead of re-running the model: with
+        mask_ties, a token is trained NOT to attend to its same-visit siblings, so the model's
+        own factorisation makes the tokens of one visit conditionally independent given the
+        history. Drawing them i.i.d. from one forward pass is therefore what the training
+        objective says to do, not an approximation of it.
+
+        SIMPLIFICATION, stated because it is visible in the output: k is drawn once per step
+        and shared by the whole batch, so rows are correlated within a step. The distribution
+        of visit sizes across generated visits is still exactly `visit_sizes`; only the
+        row-to-row independence is lost. Per-row k would need ragged sequence lengths.
         """
         if termination_tokens is None:
             # NACC model space: Death = 110 (disk token 109 + the get_batch +1 shift).
@@ -550,6 +666,9 @@ class Delphi(nn.Module):
             max_new_tokens = 128
 
         block = self.config.block_size
+        sizes = None if visit_sizes is None else torch.as_tensor(
+            visit_sizes, device=idx.device, dtype=torch.long).flatten()
+        n_new = 0
         for _ in range(max_new_tokens):
             # condition on at most the last block_size tokens so attention never runs at a
             # length the model was never trained on (the full idx/age are still grown for output).
@@ -570,7 +689,29 @@ class Delphi(nn.Module):
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
             age = torch.cat((age, age_next), dim=1)
-            
+            n_new += 1
+
+            # ---- the rest of this VISIT, at the same age (visit_sizes only) ----------------
+            if sizes is not None:
+                k = int(sizes[torch.randint(len(sizes), (1,), device=sizes.device)].item())
+                for _ in range(max(k - 1, 0)):
+                    if n_new >= max_new_tokens:
+                        break
+                    p = torch.softmax(logits, -1)          # ignored tokens are already -inf
+                    if no_repeat:                           # and nothing already emitted,
+                        fill = idx.clone()                  # including earlier in THIS visit
+                        fill[fill == 1] = 0
+                        p = p.scatter(1, fill, 0.0)
+                    tot = p.sum(1, keepdim=True)
+                    if bool((tot <= 0).any()):              # a row has nothing left to draw
+                        break
+                    extra = torch.multinomial(p / tot, 1)
+                    idx = torch.cat((idx, extra), dim=1)
+                    age = torch.cat((age, age_next), dim=1)   # SAME age -- time does not move
+                    n_new += 1
+
+            if n_new >= max_new_tokens:
+                break
             if torch.logical_or(torch.isin(idx, termination_tokens).any(-1), age_next > max_age).all():
                 break
         

@@ -43,14 +43,14 @@ PKG = os.path.join(REPO, "Delphi-2M")
 sys.path.insert(0, HERE)
 sys.path.insert(0, PKG)
 
-from arms import (ARMS, SEEDS, CAP, CAP_SHAPES, control, shape, n_params,   # noqa: E402
-                  head_params, manifest)
+from arms import (ARMS, SEEDS, CAP, CAP_SHAPES, control, overrides, why,   # noqa: E402
+                  override_keys, shape, n_params, head_params, manifest)
 
 CAPCFG = os.path.join(CAP, "configs")
 CAPRUNS = os.path.join(CAP, "runs")
 # The one key that may differ from the control's config. out_dir / seed / wandb_run_name are
 # absent from both by design (the runner injects them per array task).
-ALLOWED_DIFF = {"time_head", "out_dir", "seed", "wandb_run_name"}
+ALLOWED_DIFF = override_keys() | {"out_dir", "seed", "wandb_run_name"}
 FINGERPRINT = {"train": 800110, "val": 114143, "test": 228057}
 Y = 365.25
 
@@ -96,6 +96,31 @@ def build(time_head, nl, nh, ne, seed=None):
                                    ignore_tokens=list(range(22)), time_head=time_head))
 
 
+def target_dt_ref(idx, age, targets_age):
+    """model.py's delivered `gather` target, replicated for the contrast in check [10]."""
+    import torch
+    t = idx.size(1)
+    tril = torch.tril(torch.ones(t, t))[None, None] > 0
+    am = (idx > 0).view(1, 1, 1, t) * (idx > 0).view(1, 1, t, 1) * tril
+    am = am * (age.view(1, 1, 1, t) != targets_age.view(1, 1, t, 1))
+    am = am + (am.sum(-1, keepdim=True) == 0) * (torch.diag(torch.ones(t)) > 0)
+    am = (am + (idx == 0).view(1, 1, 1, t) * (torch.diag(torch.ones(t)) > 0)) * tril
+    d = torch.clamp(targets_age - age, min=1.0)
+    pos = torch.arange(0, t, dtype=torch.float32).view(1, 1, 1, -1)
+    return torch.gather(d, -1, (am * pos).max(-1).indices.squeeze(1))
+
+
+def _rejects(m, ti, ta, tt, tb):
+    import torch
+    m.config.dt_target = "nonsense"
+    try:
+        with torch.no_grad():
+            m(ti, ta, tt, tb)
+    except ValueError:
+        return True
+    return False
+
+
 def fixture(device="cpu"):
     """One hand-written stream that exercises ties, padding and a real target sequence."""
     import torch
@@ -133,15 +158,18 @@ def main():
     print("\n[2] parameter counts: analytic vs the live model, and the head's exact size")
     for arm in ARMS:
         nl, nh, ne = shape(arm)
-        off, on = build(False, nl, nh, ne), build(True, nl, nh, ne)
+        th = bool(overrides(arm).get("time_head"))
+        off, on = build(False, nl, nh, ne), build(th, nl, nh, ne)
         n_off = sum(p.numel() for p in off.parameters())
         n_on = sum(p.numel() for p in on.parameters())
         check(f"{arm}: params", n_on == n_params(arm), f"{n_on:,} (formula {n_params(arm):,})")
-        check(f"{arm}: head is exactly n_embd+1", n_on - n_off == head_params(ne),
-              f"+{n_on - n_off} params ({100 * (n_on - n_off) / n_on:.3f}% of the model)")
+        check(f"{arm}: adds exactly {head_params(arm)} params",
+              n_on - n_off == head_params(arm),
+              f"+{n_on - n_off}" + (f" ({100*(n_on-n_off)/n_on:.3f}% of the model)" if th
+                                    else "  -- objective-only arm, the model is untouched"))
         extra = sorted(set(on.state_dict()) - set(off.state_dict()))
-        check(f"{arm}: adds only the head's tensors", extra == ["time_head.bias", "time_head.weight"],
-              str(extra))
+        want = ["time_head.bias", "time_head.weight"] if th else []
+        check(f"{arm}: adds only the expected tensors", extra == want, str(extra) or "none")
 
     # ------------------------------------------------------------------ [3] controlled pair
     # THE check. The controls are not re-run, so if the trunk init diverges the whole
@@ -151,7 +179,7 @@ def main():
         nl, nh, ne = shape(arm)
         for s in (SEEDS[0],):
             sd_off = build(False, nl, nh, ne, seed=s).state_dict()
-            sd_on = build(True, nl, nh, ne, seed=s).state_dict()
+            sd_on = build(bool(overrides(arm).get("time_head")), nl, nh, ne, seed=s).state_dict()
             bad = [k for k in sd_off if not torch.equal(sd_off[k], sd_on[k])]
             check(f"{arm} @ seed {s}: every shared parameter identical", not bad,
                   f"{len(sd_off)} tensors" if not bad else f"DIVERGED: {bad[:4]}")
@@ -248,14 +276,16 @@ def main():
         unknown = sorted(set(cfg) - legal)
         check(f"{arm}: all keys known to train.py", not unknown,
               f"unknown: {unknown}" if unknown else "")
-        check(f"{arm}: sets time_head=True", cfg.get("time_head") is True,
-              repr(cfg.get("time_head", "<absent>")))
+        want = {k: eval(v) if isinstance(v, str) else v for k, v in overrides(arm).items()}
+        check(f"{arm}: sets {want}", all(cfg.get(k) == v for k, v in want.items()),
+              ", ".join(f"{k}={cfg.get(k, '<absent>')!r}" for k in want))
         ctlcfg = load_cfg(os.path.join(CAPCFG, f"cap_{control(arm)}.py"))
         diff = sorted(k for k in set(cfg) | set(ctlcfg)
                       if cfg.get(k, "<absent>") != ctlcfg.get(k, "<absent>"))
         bad = [k for k in diff if k not in ALLOWED_DIFF]
-        check(f"{arm}: differs from cap_{control(arm)}.py in {{time_head}} only",
-              not bad and diff == ["time_head"],
+        expect = sorted(overrides(arm))
+        check(f"{arm}: differs from cap_{control(arm)}.py in {expect} only",
+              not bad and diff == expect,
               f"unexpected: {bad}" if bad else f"diff = {diff}")
 
     # ------------------------------------------------------------------ [7] manifest
@@ -303,6 +333,59 @@ def main():
         d = np.fromfile(os.path.join(ddir, "train.bin"), dtype=np.uint32).reshape(-1, 3)
         check("token ids within disk vocab (<=109)", int(d[:, 2].max()) <= 109,
               f"max token {int(d[:, 2].max())}")
+
+    # ------------------------------------------------------------------ [10] the dt fix
+    # dt_target="gather" (the delivered target) replaces a position's own dt with the dt of the
+    # last position it may attend to. Measured on the real split: 73.6% of scored positions are
+    # trained on someone else's dt, and the supervised distribution runs 1.16x (median) /
+    # 1.72x (mean) longer than the true visit gaps -- 51.8x with the two augmentations off.
+    # "next_visit"/"next_event" compute the real forward gap instead. These checks pin the
+    # properties that make it a fix rather than a different flavour of wrong.
+    print("\n[10] the dt target fix (dt_target='next_visit' / 'next_event')")
+    from delphi.model import next_visit_dt
+    Yd = Y
+    # a stream with the real shape: an age-0 static block, then 3 visits of 4 tokens each
+    ti = torch.tensor([[2, 4, 5, 24, 29, 33, 106, 25, 30, 34, 107, 26, 31, 35, 108]])
+    ta = torch.tensor([[0, 0, 0, 70, 70, 70, 70, 72, 72, 72, 72, 75, 75, 75, 75]],
+                      dtype=torch.float32) * Yd
+    tt = torch.cat([ti[:, 1:], torch.zeros_like(ti[:, :1])], 1)
+    tb = torch.cat([ta[:, 1:], ta[:, -1:]], 1)
+    dtv, okv = next_visit_dt(ti, ta)
+    yrs = (dtv[0] / Yd).tolist()
+    check("every token of a visit gets the SAME dt",
+          len(set(round(v, 6) for v in yrs[3:7])) == 1
+          and len(set(round(v, 6) for v in yrs[7:11])) == 1,
+          f"visit@70 -> {yrs[3]:.1f} y (all 4 tokens), visit@72 -> {yrs[7]:.1f} y")
+    check("the dt is FORWARD-looking", abs(yrs[3] - 2.0) < 1e-4 and abs(yrs[7] - 3.0) < 1e-4,
+          f"visit@70 -> next visit is 72, dt = {yrs[3]:.1f} y; "
+          f"visit@72 -> next is 75, dt = {yrs[7]:.1f} y")
+    check("the last visit is flagged right-censored", (~okv[0][11:]).all().item(),
+          "no later age exists, so loss_dt must drop those positions")
+    # the delivered target, for contrast: it hands the visit@72 tokens the 70->72 gap
+    d_old = target_dt_ref(ti, ta, tb)
+    check("the delivered target really is backward-looking here",
+          abs(float(d_old[0][7]) / Yd - 2.0) < 1e-4,
+          f"visit@72 tokens get {float(d_old[0][7])/Yd:.1f} y (the gap BEFORE their own visit)")
+    # and the fix must not touch the categorical objective
+    nl, nh, ne = shape(next(iter(ARMS)))
+    losses = {}
+    for tgt_kind in ("gather", "next_visit", "next_event"):
+        mm = build(False, nl, nh, ne, seed=SEEDS[0])
+        mm.config.dt_target = tgt_kind
+        mm.eval()
+        with torch.no_grad():
+            losses[tgt_kind] = mm(ti, ta, tt, tb)[1]
+    check("loss_ce is untouched by the dt target",
+          float(losses["gather"]["loss_ce"]) == float(losses["next_visit"]["loss_ce"])
+          == float(losses["next_event"]["loss_ce"]),
+          f"{float(losses['gather']['loss_ce']):.6f} in all three")
+    check("loss_dt DOES change", abs(float(losses["gather"]["loss_dt"])
+                                     - float(losses["next_visit"]["loss_dt"])) > 1e-6,
+          f"gather {float(losses['gather']['loss_dt']):.3f} -> "
+          f"next_visit {float(losses['next_visit']['loss_dt']):.3f}")
+    check("an unknown dt_target is rejected loudly",
+          _rejects(build(False, nl, nh, ne, seed=SEEDS[0]), ti, ta, tt, tb),
+          "ValueError, not a silent fallback to the old behaviour")
 
     print("\n" + "=" * 78)
     print("PREFLIGHT PASSED -- safe to submit" if ok_all else "PREFLIGHT FAILED -- DO NOT SUBMIT")

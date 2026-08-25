@@ -37,13 +37,34 @@ Thumbs.db
 # Raw export + ID linkage (PHI / re-identification risk):
 **/investigator_nacc*.csv
 **/nacc_pidmap.csv
+# RADC/ROSMAP ID linkage (projid -> pidi; same re-identification risk as the NACC map):
+**/radc_pidmap.csv
 # All tokenized event streams, anywhere (tokenizer output + splits):
 **/*.bin
 Delphi-2M/data/nacc-*/
+Delphi-2M/data/radc-*/
 # Run outputs (all regenerable from scripts — NEVER COMMIT):
 #   out_ad/ = tokenizer + split output (bins, labels.csv, pidmap); out-*/ = checkpoints + eval figures
+#   out_radc/ = the same, for the RADC arm (data_prep/make_dataset_radc.py)
 Delphi-2M/out_ad/
+Delphi-2M/out_radc/
 Delphi-2M/out-*/
+#   eda_round2/eda_out/: the REPORT + aggregate tables ARE committed (they are what the
+#   round is for). Excluded below are only the files that carry one row per participant
+#   (a projid column) -- same re-identification policy as the pidmaps above.
+Delphi-2M/eda_round2/eda_out/tables/cv_folds.csv
+Delphi-2M/eda_round2/eda_out/figs/age_at_visit_dist_data.csv
+Delphi-2M/eda_round2/eda_out/figs/baseline_age_by_study_data.csv
+Delphi-2M/eda_round2/eda_out/figs/continuous_var_distributions_data.csv
+Delphi-2M/eda_round2/eda_out/figs/followup_span_data.csv
+Delphi-2M/eda_round2/eda_out/figs/progression_age_dist_data.csv
+Delphi-2M/eda_round2/eda_out/figs/visits_per_person_hist_data.csv
+# Derived plotting cache: per-pid baseline_age / vital status, and fully regenerable.
+Delphi-2M/results/figure2/_cache/
+#   eda_round3/eda_out/ = round-3 ordinal-scale audit; same policy, plus .cache/ holds a
+#   parquet subset of the NACC export (NACCID already factorised away, but still
+#   participant-level measurements)
+Delphi-2M/eda_round3/eda_out/
 Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
 *.pt
 *.pth
