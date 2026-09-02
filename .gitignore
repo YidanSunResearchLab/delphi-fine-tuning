@@ -65,6 +65,8 @@ Delphi-2M/results/figure2/_cache/
 #   parquet subset of the NACC export (NACCID already factorised away, but still
 #   participant-level measurements)
 Delphi-2M/eda_round3/eda_out/
+#   eda_round4/eda_out/ = round-4 coverage tables; same policy
+Delphi-2M/eda_round4/eda_out/
 Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
 *.pt
 *.pth
