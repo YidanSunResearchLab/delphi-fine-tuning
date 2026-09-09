@@ -1,5 +1,0 @@
-kind,unit,n,pct_of_grid,note
-observed visit (a row exists),person-cycle,36138,93.44,item-level missingness inside these rows is the ONLY imputable kind
-missed cycle inside the observed window,person-cycle,2537,6.56,person came back later -> a real hole in the sequence; Δage>1 encodes it
-after the last visit -- died,person,2745,,"structural, NOT imputable; must be an absorbing token"
-after the last visit -- alive at freeze (censored),person,1683,,"right censoring; not a state, must not be tokenised as an event"

@@ -49,24 +49,8 @@ Delphi-2M/data/radc-*/
 Delphi-2M/out_ad/
 Delphi-2M/out_radc/
 Delphi-2M/out-*/
-#   eda_round2/eda_out/: the REPORT + aggregate tables ARE committed (they are what the
-#   round is for). Excluded below are only the files that carry one row per participant
-#   (a projid column) -- same re-identification policy as the pidmaps above.
-Delphi-2M/eda_round2/eda_out/tables/cv_folds.csv
-Delphi-2M/eda_round2/eda_out/figs/age_at_visit_dist_data.csv
-Delphi-2M/eda_round2/eda_out/figs/baseline_age_by_study_data.csv
-Delphi-2M/eda_round2/eda_out/figs/continuous_var_distributions_data.csv
-Delphi-2M/eda_round2/eda_out/figs/followup_span_data.csv
-Delphi-2M/eda_round2/eda_out/figs/progression_age_dist_data.csv
-Delphi-2M/eda_round2/eda_out/figs/visits_per_person_hist_data.csv
 # Derived plotting cache: per-pid baseline_age / vital status, and fully regenerable.
 Delphi-2M/results/figure2/_cache/
-#   eda_round3/eda_out/ = round-3 ordinal-scale audit; same policy, plus .cache/ holds a
-#   parquet subset of the NACC export (NACCID already factorised away, but still
-#   participant-level measurements)
-Delphi-2M/eda_round3/eda_out/
-#   eda_round4/eda_out/ = round-4 coverage tables; same policy
-Delphi-2M/eda_round4/eda_out/
 Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
 *.pt
 *.pth

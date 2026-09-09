@@ -17,7 +17,14 @@ Everything here is grounded in README.md sec.8-10 (repo root). The critical fact
     closed-form horizon risk, so predict_state_at() samples.
 
 Outcomes (README.md sec.8.5), model-space token ids, low->high severity (higher = worse):
-  CDRSUM 24-28 | MOCA 29-32 | FAQ 33-36 (renamed from FASTOTAL) | NACCUDSD 106-109 | Death 110.
+  CDR boxes 111-139 (6 domains) | FAQ domains 140-175 (9) | NPI-Q symptoms 176-223 (12) |
+  GDS 224-227 | MOCA 29-32 | NACCUDSD 106-109 | Death 110.  -- 29 scales in total.
+Every sum-score has been replaced by its items: CDRSUM (24-28), the FAQ total (33-36) and
+the NPI-Q total (37-40) are all RETIRED dead slots. A total is a deterministic function of
+its items, so feeding both is redundant and leaks within a visit; and the domain-level
+trajectories are themselves prediction targets, not just features.
+Every SCALES consumer below is generic over bin count, which is what lets PERSCARE carry
+4 bins next to the other CDR domains' 5.
 """
 import os, sys, hashlib, numpy as np, torch
 
@@ -27,18 +34,49 @@ from delphi.ad_engine import load_model as _load_model_ckpt   # noqa: E402
 from delphi.utils import get_p2i, patient_stream               # noqa: E402  (disk->model +1 lift)
 
 # ------------------------------------------------------------------ domain constants (README.md sec.8.5)
+_CDR_BOX_LABELS = ["None", "Questionable", "Mild", "Moderate", "Severe"]
 SCALES = {
-    "CDRSUM":   [24, 25, 26, 27, 28],
+    # six CDR domains, contiguous 111-139, low->high severity within each block
+    "MEMORY":   [111, 112, 113, 114, 115],
+    "ORIENT":   [116, 117, 118, 119, 120],
+    "JUDGMENT": [121, 122, 123, 124, 125],
+    "COMMUN":   [126, 127, 128, 129, 130],
+    "HOMEHOBB": [131, 132, 133, 134, 135],
+    "PERSCARE": [136, 137, 138, 139],  # NO 0.5 level in the CDR form -> 4 bins, not 5
     "MOCA":     [29, 30, 31, 32],
-    "FAQ":      [33, 34, 35, 36],      # renamed from FASTOTAL (tokens unchanged)
     "NACCUDSD": [106, 107, 108, 109],
+    # nine FAQ domains, 4 levels each, contiguous 140-175
+    **{c: [140 + 4*k + v for v in range(4)] for k, c in enumerate(
+        ["BILLS","TAXES","GAMES","STOVE","MEALPREP","EVENTS","PAYATTN","REMDATES","TRAVEL"])},
+    # twelve NPI-Q symptoms, 4 levels each, contiguous 176-223
+    **{c: [176 + 4*k + v for v in range(4)] for k, c in enumerate(
+        ["DEL","HALL","AGIT","DEPD","ANX","ELAT","APA","DISN","IRR","MOT","NITE","APP"])},
+    "GDS":      [224, 225, 226, 227],
 }
+FAQ_DOMAINS = ["BILLS","TAXES","GAMES","STOVE","MEALPREP","EVENTS","PAYATTN","REMDATES","TRAVEL"]
+NPI_SYMPTOMS = ["DEL","HALL","AGIT","DEPD","ANX","ELAT","APA","DISN","IRR","MOT","NITE","APP"]
 SCALE_LABELS = {
-    "CDRSUM":   ["Normal", "Very mild", "Mild", "Moderate", "Severe"],
+    "MEMORY":   _CDR_BOX_LABELS,
+    "ORIENT":   _CDR_BOX_LABELS,
+    "JUDGMENT": _CDR_BOX_LABELS,
+    "COMMUN":   _CDR_BOX_LABELS,
+    "HOMEHOBB": _CDR_BOX_LABELS,
+    "PERSCARE": ["None", "Mild", "Moderate", "Severe"],
     "MOCA":     ["Normal", "MCI", "Moderate", "Severe"],
-    "FAQ":      ["Normal", "Mild", "Moderate", "Severe"],
     "NACCUDSD": ["Normal", "Impaired", "MCI", "Dementia"],
+    **{c: ["Normal", "Difficulty", "Assistance", "Dependent"] for c in FAQ_DOMAINS},
+    **{c: ["Absent", "Mild", "Moderate", "Severe"] for c in NPI_SYMPTOMS},
+    "GDS":      ["Normal", "Mild", "Moderate", "Severe"],
 }
+CDR_BOXES = ["MEMORY", "ORIENT", "JUDGMENT", "COMMUN", "HOMEHOBB", "PERSCARE"]
+
+# Tokens that may legitimately be emitted more than once in a trajectory: every ordinal scale
+# level. These encode a CURRENT STATE under keep-transitions, and states recur -- Normal -> MCI
+# -> Normal emits Normal twice, which is exactly the recovery the tokenizer was changed to
+# preserve. Everything NOT in here (diseases, medications, Death) is keep-first and must stay
+# blocked, because a second "onset of hypertension" is meaningless.
+# Opt out with DELPHI_ALLOW_SCALE_REPEATS=0 to reproduce the delivered sampler.
+REPEATABLE_TOKENS = sorted({t for ids in SCALES.values() for t in ids})
 DEATH = 110
 NO_EVENT = 1
 # Named NACCUDSD milestones used across time-to-event panels:
@@ -82,6 +120,15 @@ class Adapter:
         # The cache signature is EXTENDED when it is on. simulate_trajectory caches by
         # ckpt_sig, and changing the sampler without changing the key would silently re-serve
         # the old trajectories -- the run would look like the change did nothing.
+        # Scale levels are exempt from no_repeat by default (see REPEATABLE_TOKENS). This
+        # CHANGES sampled trajectories, so it extends the cache signature -- serving cached
+        # trajectories built under the old sampler would make the change look like a no-op.
+        self.repeatable_tokens = None
+        if os.environ.get("DELPHI_ALLOW_SCALE_REPEATS", "1").strip().lower() \
+                not in ("0", "off", "no", "false"):
+            self.repeatable_tokens = REPEATABLE_TOKENS
+            self.ckpt_sig = f"{self.ckpt_sig}|rep"
+
         self.visit_sizes = None
         _vs = os.environ.get("DELPHI_VISIT_SIZES", "").strip()
         if _vs and _vs.lower() not in ("0", "off", "none"):
@@ -199,7 +246,11 @@ def predict_next(ad, tokens, ages, position=-1):
 # ============================================================================ trajectory sampling
 @torch.no_grad()
 def simulate_trajectory(ad, tokens, ages, until_age_years=100.0, n_samples=100,
-                        max_new_tokens=96, seed=None, use_cache=True, cache_key=None):
+                        max_new_tokens=256, seed=None, use_cache=True, cache_key=None):
+    # max_new_tokens was 96, tuned when a patient averaged ~21 events over a lifetime. After
+    # every sum-score was split into its items the average is 55.4 (p95 100, max 250), so a
+    # 96-step rollout hits the STEP cap before it reaches max_age or draws Death -- which
+    # silently biases every first-passage time upward. 256 matches block_size.
     """Delphi-style autoregressive sampling of (state, time) beyond the given history.
 
     Returns dict:
@@ -226,7 +277,8 @@ def simulate_trajectory(ad, tokens, ages, until_age_years=100.0, n_samples=100,
     age = torch.as_tensor(np.tile(ages, (n_samples, 1)), dtype=torch.float32, device=ad.device)
     gi, ga, _ = ad.model.generate(idx, age, max_new_tokens=max_new_tokens, max_age=until_days,
                                   termination_tokens=[DEATH],
-                                  visit_sizes=getattr(ad, "visit_sizes", None))
+                                  visit_sizes=getattr(ad, "visit_sizes", None),
+                                  repeatable_tokens=getattr(ad, "repeatable_tokens", None))
     out = dict(ages=ga.cpu().numpy().astype(np.float64),
                tokens=gi.cpu().numpy().astype(np.int64), seed_len=seed_len)
     if cpath is not None:

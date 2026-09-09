@@ -610,7 +610,7 @@ class Delphi(nn.Module):
         return optimizer
 
     @torch.no_grad()
-    def generate(self, idx, age, max_new_tokens=100, max_age=85*365.25, no_repeat=True, termination_tokens=None, extra_ignore=None, visit_sizes=None):
+    def generate(self, idx, age, max_new_tokens=100, max_age=85*365.25, no_repeat=True, termination_tokens=None, extra_ignore=None, visit_sizes=None, repeatable_tokens=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -624,6 +624,27 @@ class Delphi(nn.Module):
         death reasons.
         extra_ignore: list[int] - additional token ids to mask out during generation
         (e.g. [1] to suppress No-event tokens that otherwise dominate sampling).
+
+        repeatable_tokens: list[int] - token ids EXEMPT from no_repeat. Default None keeps the
+        delivered behaviour exactly.
+
+        Why this exists. `no_repeat` was inherited from upstream Delphi, whose vocabulary is
+        incident disease diagnoses: "first heart attack" can occur once, so blocking every
+        token already in the sequence is correct there. This repository's vocabulary is not
+        that. The ordinal scales (NACCUDSD, MoCA, the CDR boxes, the FAQ domains, the NPI-Q
+        symptoms, GDS) encode a CURRENT STATE under keep-transitions dedup, and a state
+        recurs: a patient who goes Normal -> MCI -> Normal emits Normal twice, and the
+        tokenizer was deliberately changed from keep-first to keep-transitions precisely so
+        that recoveries survive. Measured on the test split, 6.6-10.7% of real scale-token
+        emissions are returns to a bin the patient had already occupied -- all of which
+        `no_repeat` assigns probability zero.
+
+        It also biases the *direction* of risk. Blocking every emitted token means an advanced
+        patient, who has already passed through the lower bins, has fewer worse-bins left to
+        sample than a mild one: for MEMORY the count falls 4 -> 3 -> 2 -> 1 -> 0 across
+        baseline bins. So predicted worsening risk DECREASES with severity, while the observed
+        relationship is the opposite (Spearman +0.29). Keep-first tokens (diseases, meds,
+        Death) have no such problem and should stay blocked -- hence a list, not a flag.
 
         visit_sizes: 1-D array of observed tokens-per-visit counts, or None (default) for the
         delivered behaviour. When given, generation emits a WHOLE VISIT per step instead of a
@@ -665,6 +686,15 @@ class Delphi(nn.Module):
         if max_new_tokens == -1:
             max_new_tokens = 128
 
+        # bool LUT over the vocabulary: True = exempt from no_repeat. Index 0 must stay False
+        # so the "remap to 0" trick above keeps working for the padding slot.
+        repeat_ok = None
+        if repeatable_tokens is not None and no_repeat:
+            repeat_ok = torch.zeros(self.config.vocab_size, dtype=torch.bool, device=idx.device)
+            repeat_ok[torch.as_tensor(list(repeatable_tokens), dtype=torch.long,
+                                      device=idx.device)] = True
+            repeat_ok[0] = False
+
         block = self.config.block_size
         sizes = None if visit_sizes is None else torch.as_tensor(
             visit_sizes, device=idx.device, dtype=torch.long).flatten()
@@ -679,6 +709,8 @@ class Delphi(nn.Module):
             if no_repeat:
                 fill = idx.clone()
                 fill[fill == 1] = 0
+                if repeat_ok is not None:
+                    fill = torch.where(repeat_ok[fill], torch.zeros_like(fill), fill)
                 logits = logits.scatter_(1, fill, -torch.inf)
             
             # sample from exponential distributions for each disease using the inverse CDF method, then take min
@@ -701,6 +733,8 @@ class Delphi(nn.Module):
                     if no_repeat:                           # and nothing already emitted,
                         fill = idx.clone()                  # including earlier in THIS visit
                         fill[fill == 1] = 0
+                        if repeat_ok is not None:
+                            fill = torch.where(repeat_ok[fill], torch.zeros_like(fill), fill)
                         p = p.scatter(1, fill, 0.0)
                     tot = p.sum(1, keepdim=True)
                     if bool((tot <= 0).any()):              # a row has nothing left to draw

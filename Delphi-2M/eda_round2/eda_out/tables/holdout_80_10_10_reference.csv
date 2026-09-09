@@ -1,4 +1,0 @@
-split,n_participants,n_visits,n_ad_cases
-train,3542,28674,921
-val,443,3813,116
-test,443,3651,127

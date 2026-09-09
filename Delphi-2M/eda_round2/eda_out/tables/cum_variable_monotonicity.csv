@@ -1,6 +1,0 @@
-variable,n_decreases,n_increases,monotone_nondecreasing
-hypertension_cum,0,637,True
-dm_cum,0,370,True
-chf_cum,0,207,True
-claudication_cum,0,682,True
-heart_cum,0,234,True

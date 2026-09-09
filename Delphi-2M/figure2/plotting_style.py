@@ -18,13 +18,36 @@ _OKABE = {
     "grey": "#999999",
 }
 # one fixed color per outcome, reused everywhere
+# One color per outcome. With every sum-score split into items there are now 30 scales, so
+# the map is BUILT rather than typed out: one hue family per instrument, separated within a
+# family by lightness (survives greyscale and colorblind simulation), and the four
+# single-scale outcomes keep their original Okabe-Ito colors so old figures stay comparable.
+def _ramp(hexes):
+    return list(hexes)
+
+_CDR_RAMP  = ["#08306B","#08519C","#2171B5","#4292C6","#6BAED6","#9ECAE1"]          # blues
+_FAQ_RAMP  = ["#00441B","#006D2C","#238B45","#41AB5D","#74C476","#A1D99B",
+              "#C7E9C0","#E5F5E0","#F7FCF5"]                                        # greens
+_NPI_RAMP  = ["#3F007D","#54278F","#6A51A3","#807DBA","#9E9AC8","#BCBDDC",
+              "#DADAEB","#EFEDF5","#7A0177","#AE017E","#DD3497","#F768A1"]          # purples/magentas
+CDR_BOXES    = ["MEMORY","ORIENT","JUDGMENT","COMMUN","HOMEHOBB","PERSCARE"]
+FAQ_DOMAINS  = ["BILLS","TAXES","GAMES","STOVE","MEALPREP","EVENTS","PAYATTN","REMDATES","TRAVEL"]
+NPI_SYMPTOMS = ["DEL","HALL","AGIT","DEPD","ANX","ELAT","APA","DISN","IRR","MOT","NITE","APP"]
+
 OUTCOME_COLORS = {
-    "CDRSUM":   _OKABE["blue"],
     "MOCA":     _OKABE["orange"],
-    "FAQ":      _OKABE["green"],
     "NACCUDSD": _OKABE["purple"],
     "Death":    _OKABE["vermillion"],
+    "GDS":      _OKABE["yellow"],
+    **dict(zip(CDR_BOXES, _CDR_RAMP)),
+    **dict(zip(FAQ_DOMAINS, _FAQ_RAMP)),
+    **dict(zip(NPI_SYMPTOMS, _NPI_RAMP)),
 }
+# family-level colors, for figures that show an instrument as one entity
+FAMILY_COLORS = {"CDR": _OKABE["blue"], "FAQ": _OKABE["green"], "NPI": "#6A51A3",
+                 "GDS": _OKABE["yellow"], "MOCA": _OKABE["orange"],
+                 "NACCUDSD": _OKABE["purple"], "Death": _OKABE["vermillion"]}
+CDR_COLOR = FAMILY_COLORS["CDR"]   # back-compat alias
 # ordinal-severity ramp (Normal -> Severe) for state-occupancy plots / heatmaps
 SEVERITY_COLORS = ["#2c7fb8", "#7fcdbb", "#fdae61", "#d7191c", "#7b3294"]
 REF_GREY = _OKABE["grey"]

@@ -1,7 +1,0 @@
-table,column,dtype,n_nonnull,max,pct_at_max,pct_ge_90,top_coded
-cross-sectional-data-gk,age_bl,float,4428,102.15,0.023,5.74,False
-cross-sectional-data-gk,age_first_ad_dx,float,1164,107.23,0.086,37.37,False
-derived,age_at_visit,float,36138,108.15,0.003,16.43,False
-ROSMAP_clinical,age_at_visit_max,string,3583,90.0,30.81,30.81,True
-ROSMAP_clinical,age_death,string,1855,90.0,47.39,47.39,True
-ROSMAP_clinical,age_first_ad_dx,string,832,90.0,35.1,35.1,True

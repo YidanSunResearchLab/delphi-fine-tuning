@@ -19,8 +19,13 @@
 dataset = "nacc-fu3v4t1-s42"
 out_dir = "out-fu3v4t1-s42"
 
-vocab_size = 111
-block_size = 96
+vocab_size = 228  # NACC vocab: 0=Padding, 1=No event, 2..227 content.
+                  # 111 -> 140 (CDRSUM split into 6 CDR boxes) -> 228 (FAQ total split
+                  # into 9 domains, NPI-Q total into 12 symptoms, GDS added).
+                  # See data_prep/tokenize_nacc_ad.py.
+block_size = 256            # 96 -> 256: at 55.4 tokens/patient (p95 100, max 250) a 96-window
+                            # truncated 6.0% of patients, and select='left' drops their LATEST
+                            # events -- exactly the conversions. 256 truncates nobody.
 
 t_min = 365.25 / 12
 

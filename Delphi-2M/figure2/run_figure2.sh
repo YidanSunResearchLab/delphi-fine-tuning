@@ -56,7 +56,11 @@ echo "=== Figure 2 | device=$DEVICE workers=$WORKERS ckpt=$CKPT | extra args: ${
 # dedup build has a known event count; a deliberately different dataset (e.g. a cohort subset
 # passed via DATA=) is reported but not enforced.
 EXPECT_EVENTS="${EXPECT_EVENTS:-}"
-if [ -z "$EXPECT_EVENTS" ] && [ "$DATA" = "data/nacc-dedup-s42" ]; then EXPECT_EVENTS=228057; fi
+# 611,673 since the sum-scores were split into items (CDRSUM -> 6 CDR boxes, FAQ total -> 9
+# domains, NPI-Q total -> 12 symptoms, + GDS; vocab 111 -> 228). It was 228,057 before that,
+# and 310,241 at the intermediate CDR-only step. Bump this whenever the tokenizer changes --
+# the number is the whole point of the guard, a stale one just fails every run.
+if [ -z "$EXPECT_EVENTS" ] && [ "$DATA" = "data/nacc-dedup-s42" ]; then EXPECT_EVENTS=611673; fi
 "$PY" - "$DATA" "${EXPECT_EVENTS:-0}" <<'PY'
 import numpy as np, sys
 d = np.fromfile(f"{sys.argv[1]}/test.bin", dtype=np.uint32).reshape(-1, 3)

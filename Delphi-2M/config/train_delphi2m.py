@@ -6,8 +6,13 @@
 dataset = "nacc-dedup-s42"
 out_dir = "out-delphi2m-dedup-nomask-s42"
 
-vocab_size = 111            # our NACC vocab (official uses 1270; that's data-dependent, keep ours)
-block_size = 96             # official Delphi block size (was 80)
+vocab_size = 228  # NACC vocab: 0=Padding, 1=No event, 2..227 content.
+                  # 111 -> 140 (CDRSUM split into 6 CDR boxes) -> 228 (FAQ total split
+                  # into 9 domains, NPI-Q total into 12 symptoms, GDS added).
+                  # See data_prep/tokenize_nacc_ad.py.
+block_size = 256            # 96 -> 256: at 55.4 tokens/patient (p95 100, max 250) a 96-window
+                            # truncated 6.0% of patients, and select='left' drops their LATEST
+                            # events -- exactly the conversions. 256 truncates nobody.
 
 # time-to-event loss floor. KEEP the safe NACC value (365.25/12 ~= 1 month), NOT the official
 # 0.1 -> t_min too small reintroduces the NaN loss_dt this branch fixed. See train_nacc.py notes.
