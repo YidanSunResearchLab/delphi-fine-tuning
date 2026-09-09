@@ -39,7 +39,8 @@ ignore_tokens = list(range(22))
 # --- architecture: 8L / 8H / 192d = 3,622,848 params, head_dim 24 ---
 #
 # WAS 8/6/120 = 1,412,160 at vocab 111. Depth is held at 8 and width is what moves, because
-# that is what experiments/capacity actually measured (6 shapes x 3 seeds, 48 runs):
+# that is what experiments/capacity actually measured (6 shapes x 3 seeds, 48 runs).
+# experiments/ was removed from this branch; it is still there at commit dba88f8.
 #
 #   * n_layer 8 was the BEST downstream arm of the six at n_embd 120 -- median AUC 0.6942
 #     +/- 0.0098 against 12 layers' 0.6532 +/- 0.0117. Going deeper made it worse. So the

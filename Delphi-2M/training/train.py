@@ -63,11 +63,17 @@ compile = False  # use PyTorch 2.0 to compile the model to be faster
 
 # delphi training
 token_dropout = 0.0
-t_min = 365.25 / 12.  # ~1-month floor; MUST be > 0 (t_min=0 -> unbounded intensity -> NaN loss_dt)
+# ~1-month floor (the original Delphi value). MUST be > 0: it caps the predicted
+# event-intensity at lambda <= 1/t_min so loss_dt (= lambda*dt - log lambda) cannot blow up.
+# t_min=0.0 removes the cap -> logsumexp(logits) overflows in fp32 -> loss_dt = NaN. This is
+# not hypothetical: it killed the original 20k-iter run, whose weights went NaN somewhere
+# between iter 10000 and 20000. Do not lower it.
+t_min = 365.25 / 12.
 mask_ties = True
 # time_head=False reproduces every delivered run: one output projection, and the
 # time-to-next-event intensity read off it as logsumexp(logits). True gives the timing
-# objective its own scalar head (see delphi/model.py and experiments/time_head/).
+# objective its own scalar head (see delphi/model.py and experiments/time_head/, which was
+# removed from this branch and is still present at commit dba88f8).
 time_head = False
 # dt_target: what loss_dt is trained to predict. "gather" = the delivered behaviour (a
 # position uses the dt of the last token it may attend to, which for same-visit tokens is the

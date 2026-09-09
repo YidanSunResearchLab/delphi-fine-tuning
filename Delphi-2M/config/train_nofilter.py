@@ -2,7 +2,7 @@
 #
 # Every other model in this project throws patients away before training:
 #   general (train_delphi2m_mask_dedup.py)  filter_cohort keeps 16,262 of 38,687
-#   A / B / C / D (train_fu*.py)            1,483 - 5,930 after a strict AND rule
+#   A / B / C / D (train_cohort_sweep.py)   1,483 - 5,930 after a strict AND rule
 #
 # This one trains on ALL 38,687 patients in the split, including the ~22,000 who have
 # two or three visits and never change cognitive state. Setting cohort_min_visits = 1
@@ -13,8 +13,13 @@
 # are also the population the model will mostly meet, and they still carry demographics,
 # comorbidities and timing signal. This is the only run that answers it.
 #
-# Architecture and schedule are IDENTICAL to config/train_delphi2m_mask_dedup.py,
-# including eval_interval, so the only variable is the training population.
+# Schedule and eval_interval are IDENTICAL to config/train_delphi2m_mask_dedup.py.
+#
+# ⚠️ THE ARCHITECTURE IS NOT. This config is 12L/12H/120d; the delivered model moved to
+# 8L/6H/120d in commit 23c02e6, which did not touch this file, so the checkpoint on disk is
+# 12/12/120. A nofilter-vs-delivered gap therefore mixes the filter with the architecture --
+# it is NOT the clean one-variable comparison the earlier version of this comment claimed.
+# To get that comparison, re-run with --n_layer 8 --n_head 6 --out_dir out-nofilter-L8H6-s42.
 #
 # Run: python training/train.py config/train_nofilter.py --device=cuda
 dataset = "nacc-dedup-s42"

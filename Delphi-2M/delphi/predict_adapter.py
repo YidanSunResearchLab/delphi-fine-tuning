@@ -115,7 +115,7 @@ class Adapter:
         # one token, all at a single age. Unset (the default) reproduces the delivered sampler
         # exactly. Why: generation emits 1.03 tokens per visit where the data has 4.11, so one
         # real visit costs several simulated steps and trajectories run 2.5x too slow
-        # (experiments/time_head/gen_steps_probe.py).
+        # (experiments/time_head/gen_steps_probe.py, removed from this branch; see dba88f8).
         #
         # The cache signature is EXTENDED when it is on. simulate_trajectory caches by
         # ckpt_sig, and changing the sampler without changing the key would silently re-serve

@@ -49,7 +49,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 # The config is the one thing that changes between training runs, so take it as an argument:
 #   sbatch slurm/train_delphi2m_mask_dedup.sbatch                              # delivered model
-#   sbatch slurm/train_delphi2m_mask_dedup.sbatch config/train_delphi2m_strict.py
+#   COHORT=strict sbatch slurm/train_delphi2m_mask_dedup.sbatch config/train_cohort_sweep.py
 CFG="${1:-config/train_delphi2m_mask_dedup.py}"
 echo "config: $CFG"
 python -u training/train.py "$CFG" --device=cuda $WANDB_FLAGS

@@ -37,7 +37,7 @@ separate claims (§12).
 > **These numbers predate the architecture change.** The reference run was measured with the
 > previous 12/12/120, 2.10M-param shape. The config now ships **8/6/120, 1.41M params** (§9.4),
 > so expect a smaller `ckpt.pt` (~17 MB) and a shorter ② — and slightly *better* Figure-2
-> discrimination, per [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md).
+> discrimination, per `experiments/capacity/RESULTS.md` (removed from this branch; see `dba88f8`).
 > The end-to-end run has **not** been repeated on the new shape.
 
 ### Contents
@@ -159,10 +159,11 @@ expects. Dataset, output dir and hyperparameters all come from the config; CLI f
 - **This config** = 8 layers / 6 heads / 120-dim, **1,412,160 params**, 5000 iters, with
   `ignore_tokens = 0..21` dropped from the **loss** — see §9.3 and §10. The architecture was
   changed away from the upstream Delphi-2M shape (12 layers / 12 heads, 2.10M params) on the
-  evidence of [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md): 1.49× smaller,
+  evidence of `experiments/capacity/RESULTS.md` (at `dba88f8`): 1.49× smaller,
   ~1.6× faster, and better on every downstream Figure-2 metric.
-- **Superseded:** `config/train_nacc.py` (6 layers / 384-dim / 20k iters) overfit — val loss
-  bottomed near step 5000 then rose. `config/train_delphi2m.py` is the no-loss-mask ablation
+- **Removed:** `config/train_nacc.py` (6 layers / 384-dim / 20k iters) overfit — val loss
+  bottomed near step 5000 then rose. Deleted as superseded; still in history at `dba88f8`.
+  `config/train_delphi2m.py` is the no-loss-mask ablation
   baseline — but note that it, and every other `config/*.py`, still carries the **old 12/12/120**
   shape. It is therefore now an ablation of *both* the mask and the architecture; re-run it at
   8/6/120 before reading it as a clean mask ablation.
@@ -290,7 +291,7 @@ AD-projection/
     │
     ├── data_prep/               ①  raw CSV -> train/val/test splits
     │   ├── make_dataset.py          ENTRY POINT: wraps the two below + makes the data/ symlinks
-    │   ├── tokenize_nacc_ad.py      CSV -> out_ad/nacc_all.bin (5 cognitive scales, keep-transitions)
+    │   ├── tokenize_nacc_ad.py      CSV -> out_ad/nacc_all.bin (30 ordinal scales, keep-transitions)
     │   ├── make_split_ad.py         by-patient 70/10/20 (no subject crosses splits)
     │   └── Vocabulary NACC.xlsx     token index -> label table, read by the tokenizer
     │
@@ -298,9 +299,12 @@ AD-projection/
     │   ├── train.py                 ENTRY POINT: next-token CE + exponential time-to-event loss
     │   └── configurator.py          loads config/*.py, then applies CLI overrides
     ├── config/                      hyperparameters
-    │   ├── train_delphi2m_mask_dedup.py   << the DELIVERED model
-    │   ├── train_delphi2m.py              same, without the loss mask (ablation)
-    │   └── train_nacc.py                  superseded (10.8M params, overfit)
+    │   ├── train_delphi2m_mask_dedup.py   << the DELIVERED model (8L/6H/120d)
+    │   ├── train_itemsplit_s42.py         the item-split tokenisation (vocab 228, §8.5)
+    │   ├── train_delphi2m.py              same as delivered, without the loss mask (ablation)
+    │   ├── train_nofilter.py              same, without the cohort filter (ablation)
+    │   ├── train_cohort_sweep.py          the 4-cohort data-volume sweep; pick with COHORT=
+    │   └── train_radc.py                  the RADC/ROSMAP arm (its own vocab, 69)
     │
     ├── delphi/                  ⚙  the model and the one abstraction over it
     │   ├── model.py                 the transformer (age-encoding instead of positional)
@@ -597,7 +601,7 @@ Its consequence is the single most important thing to know about this model → 
 | Parameter | Value | |
 |---|---|---|
 | Vocabulary / block size | 111 / 96 | **as trained.** The tokenizer now emits 228 / 256 (§8.5) — retrain needed |
-| Layers / heads / embedding | 8 / 6 / 120 | 1,412,160 params, head_dim 20 — chosen in `experiments/capacity`, **not** inherited |
+| Layers / heads / embedding | 8 / 6 / 120 | 1,412,160 params, head_dim 20 — chosen in `experiments/capacity` (at `dba88f8`), **not** inherited |
 | Dropout / token dropout | 0.0 / 0.0 | |
 | `ignore_tokens` | `0..21` | §9.3 |
 | `t_min` | `365.25/12` (~1 month) | **do not lower** — see below |

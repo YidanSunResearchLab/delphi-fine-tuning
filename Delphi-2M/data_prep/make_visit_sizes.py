@@ -21,7 +21,8 @@ each patient's SECOND and later visits count -- the first carries every scale's 
 at once, while generation always continues from a seed prefix. Age-0 statics are not a visit.
 
 This file exists so the constant is rebuilt with the .bin by make_dataset.py; the copy under
-experiments/time_head/ is the original one-off and is left alone so that experiment still
+experiments/time_head/ held the original one-off. That directory was removed from this branch
+(it is still at commit dba88f8), so this is now the only copy; it stays byte-compatible so that
 reproduces byte-for-byte.
 
   python data_prep/make_visit_sizes.py                  # -> out_ad/visit_sizes.npy

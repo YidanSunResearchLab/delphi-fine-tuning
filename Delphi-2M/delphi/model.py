@@ -148,6 +148,7 @@ def next_visit_dt(idx, age, ignore=None):
     "time to the next REAL event", which is what generate() is actually asked to reproduce,
     since it masks those tokens and can never emit one. Which of the two matches the true
     visit-gap distribution is an empirical question; experiments/time_head/dt_ablation.py
+    (experiments/ was removed from this branch; still present at commit dba88f8)
     measures both.
 
     Returns (dt, ok). `ok` is False where there is no later age -- the subject's last visit --

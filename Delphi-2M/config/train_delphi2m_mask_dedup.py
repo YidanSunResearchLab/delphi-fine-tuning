@@ -37,7 +37,8 @@ ignore_tokens = list(range(22))
 #
 # WAS 12/12/120 = 2,104,320 params, copied verbatim from the upstream Delphi-2M demo config
 # (vocab 1270, cohort ~100x larger). It was never chosen for THIS dataset. Changed on the
-# evidence of experiments/capacity -- 6 shapes x 3 seeds, 48 runs; see its RESULTS.md:
+# evidence of experiments/capacity -- 6 shapes x 3 seeds, 48 runs; see its RESULTS.md.
+# (experiments/ was removed from this branch; it is still there at commit dba88f8.)
 #
 #   * n_head 12 -> 6 (head_dim 10 -> 20) is free: identical parameter count, identical
 #     speed, and 5/5 downstream Figure-2 metrics improve by more than the seed sd.
