@@ -1,0 +1,888 @@
+{
+  "meta": {
+    "ckpt": "out-radc-final/ckpt.pt",
+    "ckpt_sig": "e7bc3e9c0241",
+    "split": "test",
+    "n_mc": 200,
+    "seed": 0,
+    "limit": 0,
+    "horizons": [
+      1.0,
+      3.0,
+      5.0
+    ],
+    "min_lead_years": 2.0,
+    "max_new_tokens": 128,
+    "until_age": 110.0,
+    "n_boot": 1000,
+    "data_dir": "data/radc-s42",
+    "iter_num": 5400,
+    "n_split_subjects": 884,
+    "n_eval_subjects": 744,
+    "n_eval_converters": 215,
+    "headline": [
+      5.0,
+      2.0
+    ],
+    "scored_subjects": 744,
+    "n_landmarks": 3280,
+    "wall_seconds": 360.4
+  },
+  "primary": [
+    {
+      "horizon_years": 1.0,
+      "min_lead_years": 0.0,
+      "n_subjects": 744,
+      "n_subjects_evaluable": 702,
+      "n_landmarks": 3280,
+      "n_evaluable": 2928,
+      "n_evaluable_positive": 164,
+      "n_evaluable_negative": 2764,
+      "n_dropped_competing_or_censored": 352,
+      "evaluable_prevalence": 0.056010928961748634,
+      "auc": 0.9082255303377925,
+      "auc_ci95": [
+        0.8856108355329622,
+        0.9279759000374593
+      ],
+      "auc_reportable": true,
+      "calibration": {
+        "n_rows": 3280,
+        "bins": [
+          {
+            "bin": 1,
+            "n": 328,
+            "mean_pred": 0.0,
+            "aj_observed": 0.003125,
+            "n_ad_within_h": 1,
+            "n_death_within_h": 5,
+            "n_at_risk_at_h": 304
+          },
+          {
+            "bin": 2,
+            "n": 328,
+            "mean_pred": 0.0,
+            "aj_observed": 0.003076923076923077,
+            "n_ad_within_h": 1,
+            "n_death_within_h": 5,
+            "n_at_risk_at_h": 315
+          },
+          {
+            "bin": 3,
+            "n": 328,
+            "mean_pred": 0.0,
+            "aj_observed": 0.003154574132492114,
+            "n_ad_within_h": 1,
+            "n_death_within_h": 6,
+            "n_at_risk_at_h": 283
+          },
+          {
+            "bin": 4,
+            "n": 328,
+            "mean_pred": 0.0,
+            "aj_observed": 0.0,
+            "n_ad_within_h": 0,
+            "n_death_within_h": 3,
+            "n_at_risk_at_h": 303
+          },
+          {
+            "bin": 5,
+            "n": 328,
+            "mean_pred": 0.004710365853658536,
+            "aj_observed": 0.009345794392523364,
+            "n_ad_within_h": 3,
+            "n_death_within_h": 9,
+            "n_at_risk_at_h": 300
+          },
+          {
+            "bin": 6,
+            "n": 328,
+            "mean_pred": 0.006798780487804878,
+            "aj_observed": 0.009433962264150945,
+            "n_ad_within_h": 3,
+            "n_death_within_h": 17,
+            "n_at_risk_at_h": 285
+          },
+          {
+            "bin": 7,
+            "n": 328,
+            "mean_pred": 0.013734756097560976,
+            "aj_observed": 0.022151898734177212,
+            "n_ad_within_h": 7,
+            "n_death_within_h": 18,
+            "n_at_risk_at_h": 282
+          },
+          {
+            "bin": 8,
+            "n": 328,
+            "mean_pred": 0.030167682926829267,
+            "aj_observed": 0.03785488958990537,
+            "n_ad_within_h": 12,
+            "n_death_within_h": 18,
+            "n_at_risk_at_h": 278
+          },
+          {
+            "bin": 9,
+            "n": 328,
+            "mean_pred": 0.06983231707317074,
+            "aj_observed": 0.1223488674073006,
+            "n_ad_within_h": 39,
+            "n_death_within_h": 35,
+            "n_at_risk_at_h": 237
+          },
+          {
+            "bin": 10,
+            "n": 328,
+            "mean_pred": 0.22025914634146343,
+            "aj_observed": 0.3099041533546318,
+            "n_ad_within_h": 97,
+            "n_death_within_h": 31,
+            "n_at_risk_at_h": 177
+          }
+        ],
+        "n_bins": 10,
+        "mean_abs_calibration_error": 0.01748930141716166,
+        "mean_predicted_all_rows": 0.03455030487804878,
+        "aj_observed_all_rows": 0.051503267233024765,
+        "brier": 0.0428661543715847,
+        "brier_null": 0.0528737047985906,
+        "cal_slope": 1.0846522678556203,
+        "cal_intercept": 0.8809296781460452
+      }
+    },
+    {
+      "horizon_years": 1.0,
+      "min_lead_years": 2.0,
+      "n_subjects": 714,
+      "n_subjects_evaluable": 672,
+      "n_landmarks": 2979,
+      "n_evaluable": 2627,
+      "n_evaluable_positive": 0,
+      "n_evaluable_negative": 2627,
+      "n_dropped_competing_or_censored": 352,
+      "evaluable_prevalence": 0.0,
+      "auc": null,
+      "auc_ci95": [
+        null,
+        null
+      ],
+      "auc_reportable": false,
+      "calibration": {
+        "n_rows": 2979,
+        "bins": [],
+        "n_bins": 0,
+        "mean_abs_calibration_error": null,
+        "mean_predicted_all_rows": null,
+        "aj_observed_all_rows": null,
+        "brier": null,
+        "brier_null": null,
+        "cal_slope": null,
+        "cal_intercept": null,
+        "suppressed": "lead filter selects on the outcome; calibration is reported on the lead-0 arm at the same horizon"
+      }
+    },
+    {
+      "horizon_years": 3.0,
+      "min_lead_years": 0.0,
+      "n_subjects": 744,
+      "n_subjects_evaluable": 623,
+      "n_landmarks": 3280,
+      "n_evaluable": 2477,
+      "n_evaluable_positive": 416,
+      "n_evaluable_negative": 2061,
+      "n_dropped_competing_or_censored": 803,
+      "evaluable_prevalence": 0.16794509487283005,
+      "auc": 0.8884975786586049,
+      "auc_ci95": [
+        0.8645471477313788,
+        0.9096593449342906
+      ],
+      "auc_reportable": true,
+      "calibration": {
+        "n_rows": 3280,
+        "bins": [
+          {
+            "bin": 1,
+            "n": 328,
+            "mean_pred": 0.0,
+            "aj_observed": 0.019643545060523293,
+            "n_ad_within_h": 6,
+            "n_death_within_h": 11,
+            "n_at_risk_at_h": 281
+          },
+          {
+            "bin": 2,
+            "n": 328,
+            "mean_pred": 0.0005945121951219512,
+            "aj_observed": 0.010327134518800055,
+            "n_ad_within_h": 3,
+            "n_death_within_h": 16,
+            "n_at_risk_at_h": 262
+          },
+          {
+            "bin": 3,
+            "n": 328,
+            "mean_pred": 0.004999999999999999,
+            "aj_observed": 0.012947744248440304,
+            "n_ad_within_h": 4,
+            "n_death_within_h": 21,
+            "n_at_risk_at_h": 271
+          },
+          {
+            "bin": 4,
+            "n": 328,
+            "mean_pred": 0.00975609756097561,
+            "aj_observed": 0.036153119092627584,
+            "n_ad_within_h": 11,
+            "n_death_within_h": 24,
+            "n_at_risk_at_h": 258
+          },
+          {
+            "bin": 5,
+            "n": 328,
+            "mean_pred": 0.017057926829268294,
+            "aj_observed": 0.02634118494556427,
+            "n_ad_within_h": 8,
+            "n_death_within_h": 49,
+            "n_at_risk_at_h": 229
+          },
+          {
+            "bin": 6,
+            "n": 328,
+            "mean_pred": 0.028658536585365862,
+            "aj_observed": 0.04295349333037016,
+            "n_ad_within_h": 13,
+            "n_death_within_h": 48,
+            "n_at_risk_at_h": 226
+          },
+          {
+            "bin": 7,
+            "n": 328,
+            "mean_pred": 0.05309451219512195,
+            "aj_observed": 0.13579989512767332,
+            "n_ad_within_h": 41,
+            "n_death_within_h": 67,
+            "n_at_risk_at_h": 185
+          },
+          {
+            "bin": 8,
+            "n": 328,
+            "mean_pred": 0.10698170731707318,
+            "aj_observed": 0.18580729921366324,
+            "n_ad_within_h": 56,
+            "n_death_within_h": 67,
+            "n_at_risk_at_h": 162
+          },
+          {
+            "bin": 9,
+            "n": 328,
+            "mean_pred": 0.20687499999999998,
+            "aj_observed": 0.3282793138629667,
+            "n_ad_within_h": 102,
+            "n_death_within_h": 73,
+            "n_at_risk_at_h": 126
+          },
+          {
+            "bin": 10,
+            "n": 328,
+            "mean_pred": 0.4767835365853658,
+            "aj_observed": 0.5647078643286441,
+            "n_ad_within_h": 172,
+            "n_death_within_h": 63,
+            "n_at_risk_at_h": 61
+          }
+        ],
+        "n_bins": 10,
+        "mean_abs_calibration_error": 0.04581587644609803,
+        "mean_predicted_all_rows": 0.09048018292682926,
+        "aj_observed_all_rows": 0.1352187837498893,
+        "brier": 0.10368364957610013,
+        "brier_null": 0.13973953998098612,
+        "cal_slope": 0.9875359030482551,
+        "cal_intercept": 1.1441707799157825
+      }
+    },
+    {
+      "horizon_years": 3.0,
+      "min_lead_years": 2.0,
+      "n_subjects": 714,
+      "n_subjects_evaluable": 593,
+      "n_landmarks": 2979,
+      "n_evaluable": 2176,
+      "n_evaluable_positive": 115,
+      "n_evaluable_negative": 2061,
+      "n_dropped_competing_or_censored": 803,
+      "evaluable_prevalence": 0.05284926470588235,
+      "auc": 0.8217222538657891,
+      "auc_ci95": [
+        0.7801420791610567,
+        0.8605703152942634
+      ],
+      "auc_reportable": true,
+      "calibration": {
+        "n_rows": 2979,
+        "bins": [],
+        "n_bins": 0,
+        "mean_abs_calibration_error": null,
+        "mean_predicted_all_rows": null,
+        "aj_observed_all_rows": null,
+        "brier": null,
+        "brier_null": null,
+        "cal_slope": null,
+        "cal_intercept": null,
+        "suppressed": "lead filter selects on the outcome; calibration is reported on the lead-0 arm at the same horizon"
+      }
+    },
+    {
+      "horizon_years": 5.0,
+      "min_lead_years": 0.0,
+      "n_subjects": 744,
+      "n_subjects_evaluable": 552,
+      "n_landmarks": 3280,
+      "n_evaluable": 2121,
+      "n_evaluable_positive": 597,
+      "n_evaluable_negative": 1524,
+      "n_dropped_competing_or_censored": 1159,
+      "evaluable_prevalence": 0.2814710042432815,
+      "auc": 0.8737063488923181,
+      "auc_ci95": [
+        0.8498668700175284,
+        0.893181354988036
+      ],
+      "auc_reportable": true,
+      "calibration": {
+        "n_rows": 3280,
+        "bins": [
+          {
+            "bin": 1,
+            "n": 328,
+            "mean_pred": 0.000426829268292683,
+            "aj_observed": 0.02333606453299943,
+            "n_ad_within_h": 7,
+            "n_death_within_h": 23,
+            "n_at_risk_at_h": 253
+          },
+          {
+            "bin": 2,
+            "n": 328,
+            "mean_pred": 0.0061737804878048775,
+            "aj_observed": 0.04150019247903777,
+            "n_ad_within_h": 12,
+            "n_death_within_h": 29,
+            "n_at_risk_at_h": 233
+          },
+          {
+            "bin": 3,
+            "n": 328,
+            "mean_pred": 0.012454268292682924,
+            "aj_observed": 0.052445470181026216,
+            "n_ad_within_h": 15,
+            "n_death_within_h": 34,
+            "n_at_risk_at_h": 219
+          },
+          {
+            "bin": 4,
+            "n": 328,
+            "mean_pred": 0.021996951219512194,
+            "aj_observed": 0.060077103501240986,
+            "n_ad_within_h": 18,
+            "n_death_within_h": 54,
+            "n_at_risk_at_h": 205
+          },
+          {
+            "bin": 5,
+            "n": 328,
+            "mean_pred": 0.03637195121951219,
+            "aj_observed": 0.0922394153756953,
+            "n_ad_within_h": 26,
+            "n_death_within_h": 74,
+            "n_at_risk_at_h": 166
+          },
+          {
+            "bin": 6,
+            "n": 328,
+            "mean_pred": 0.060228658536585364,
+            "aj_observed": 0.12589072381063998,
+            "n_ad_within_h": 36,
+            "n_death_within_h": 89,
+            "n_at_risk_at_h": 145
+          },
+          {
+            "bin": 7,
+            "n": 328,
+            "mean_pred": 0.10521341463414634,
+            "aj_observed": 0.24202556160823238,
+            "n_ad_within_h": 70,
+            "n_death_within_h": 89,
+            "n_at_risk_at_h": 117
+          },
+          {
+            "bin": 8,
+            "n": 328,
+            "mean_pred": 0.19246951219512193,
+            "aj_observed": 0.30363155372861383,
+            "n_ad_within_h": 89,
+            "n_death_within_h": 100,
+            "n_at_risk_at_h": 91
+          },
+          {
+            "bin": 9,
+            "n": 328,
+            "mean_pred": 0.3335365853658537,
+            "aj_observed": 0.4375663959468686,
+            "n_ad_within_h": 132,
+            "n_death_within_h": 89,
+            "n_at_risk_at_h": 71
+          },
+          {
+            "bin": 10,
+            "n": 328,
+            "mean_pred": 0.6251371951219513,
+            "aj_observed": 0.6424496448756728,
+            "n_ad_within_h": 192,
+            "n_death_within_h": 76,
+            "n_at_risk_at_h": 24
+          }
+        ],
+        "n_bins": 10,
+        "mean_abs_calibration_error": 0.06271529796985637,
+        "mean_predicted_all_rows": 0.13940091463414633,
+        "aj_observed_all_rows": 0.19971937928146957,
+        "brier": 0.1549610561056106,
+        "brier_null": 0.2022450780135601,
+        "cal_slope": 0.9384455229036749,
+        "cal_intercept": 1.3788367796675034
+      }
+    },
+    {
+      "horizon_years": 5.0,
+      "min_lead_years": 2.0,
+      "n_subjects": 714,
+      "n_subjects_evaluable": 522,
+      "n_landmarks": 2979,
+      "n_evaluable": 1820,
+      "n_evaluable_positive": 296,
+      "n_evaluable_negative": 1524,
+      "n_dropped_competing_or_censored": 1159,
+      "evaluable_prevalence": 0.16263736263736264,
+      "auc": 0.8107587163935589,
+      "auc_ci95": [
+        0.7762211525959091,
+        0.8439184746931553
+      ],
+      "auc_reportable": true,
+      "calibration": {
+        "n_rows": 2979,
+        "bins": [],
+        "n_bins": 0,
+        "mean_abs_calibration_error": null,
+        "mean_predicted_all_rows": null,
+        "aj_observed_all_rows": null,
+        "brier": null,
+        "brier_null": null,
+        "cal_slope": null,
+        "cal_intercept": null,
+        "suppressed": "lead filter selects on the outcome; calibration is reported on the lead-0 arm at the same horizon"
+      }
+    }
+  ],
+  "secondary": {
+    "cif_calibration": {
+      "n_subjects_age80": 277,
+      "n_mc": 200,
+      "aj_all_eval_population": "whole evaluation cohort, all splits",
+      "n_draws": 55400,
+      "origin_age": 80.0,
+      "ages": {
+        "85.0": {
+          "simulated_cif": 0.09176895306859206,
+          "frac_draws_truncated_before_age": 0.004476534296028881,
+          "observed_aj_landmark80": 0.12688161590403513,
+          "risk_set_landmark80": 161,
+          "observed_aj_split_eval": 0.2038658776217496,
+          "risk_set_split_eval": 293,
+          "observed_aj_all_eval": 0.17743000177595292,
+          "risk_set_all_eval": 1531
+        },
+        "90.0": {
+          "simulated_cif": 0.1797292418772563,
+          "frac_draws_truncated_before_age": 0.00799638989169675,
+          "observed_aj_landmark80": 0.21329325500080332,
+          "risk_set_landmark80": 71,
+          "observed_aj_split_eval": 0.3038812178261541,
+          "risk_set_split_eval": 188,
+          "observed_aj_all_eval": 0.28094045113272126,
+          "risk_set_all_eval": 986
+        },
+        "95.0": {
+          "simulated_cif": 0.2868772563176895,
+          "frac_draws_truncated_before_age": 0.013718411552346571,
+          "observed_aj_landmark80": 0.35311592469774855,
+          "risk_set_landmark80": 12,
+          "observed_aj_split_eval": 0.3830032956398211,
+          "risk_set_split_eval": 66,
+          "observed_aj_all_eval": 0.36111414665231123,
+          "risk_set_all_eval": 361
+        }
+      }
+    },
+    "mortality": {
+      "n_subjects_age80": 277,
+      "ages": {
+        "85.0": {
+          "simulated_death_cif": 0.00832129963898917,
+          "observed_death_cif_landmark80": 0.24629874024882767,
+          "risk_set_landmark80": 178,
+          "observed_death_cif_split_eval": 0.3668132165608802,
+          "risk_set_split_eval": 324
+        },
+        "90.0": {
+          "simulated_death_cif": 0.010956678700361011,
+          "observed_death_cif_landmark80": 0.5337656520029552,
+          "risk_set_landmark80": 84,
+          "observed_death_cif_split_eval": 0.5866603701230468,
+          "risk_set_split_eval": 233
+        },
+        "95.0": {
+          "simulated_death_cif": 0.012075812274368231,
+          "observed_death_cif_landmark80": 0.8225510535453293,
+          "risk_set_landmark80": 25,
+          "observed_death_cif_split_eval": 0.8142244606450333,
+          "risk_set_split_eval": 103
+        }
+      },
+      "simulated_death_age": {
+        "n": 803,
+        "median": 83.91077423095703,
+        "p10": 79.17405700683594,
+        "p90": 102.11130828857422,
+        "frac_ge_90": 0.24408468244084683,
+        "source": "rollouts from age-80 prefixes, deaths only",
+        "frac_draws_never_died_in_budget": 0.9855054151624548
+      },
+      "observed_death_age_landmark80": {
+        "n": 189,
+        "median": 87.60574948665298,
+        "p10": 81.75824777549623,
+        "p90": 95.13976728268308,
+        "frac_ge_90": 0.35978835978835977,
+        "source": "same subjects, observed age_death"
+      },
+      "emitted_death_age_all": {
+        "n": 2745,
+        "median": 89.7138945927447,
+        "p10": 80.46762491444217,
+        "p90": 97.33607118412047,
+        "frac_ge_90": 0.46229508196721314,
+        "source": "every Death token in the built dataset"
+      },
+      "note": "the simulated law is conditional on being alive and AD-free at 80 and on the rollout budget, so it is comparable to observed_death_age_landmark80; emitted_death_age_all is the cohort-wide reference (median 89.7, p10 80.5, p90 97.3, 46.2% at 90+) and is NOT the same conditioning"
+    },
+    "likelihood": {
+      "loss_ce": 2.1596454905169042,
+      "loss_dt": 6.520488184501683,
+      "loss_total": 8.680133675018586,
+      "n_subjects": 884
+    },
+    "trajectory": {
+      "n_subjects": 744,
+      "years": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "scales": {
+        "MMSE": {
+          "n_bins": 4,
+          "bin_order": "index 0 = worst bin (vocab.SCALES order)",
+          "curve": [
+            {
+              "year": 0,
+              "sim_mean_bin": 2.8559380823483003,
+              "sim_mean_bin_matched": 2.8559380823483003,
+              "sim_n_draws": 147034,
+              "obs_mean_bin": 2.8559782608695654,
+              "obs_n_subjects": 736
+            },
+            {
+              "year": 1,
+              "sim_mean_bin": 2.8261500249745124,
+              "sim_mean_bin_matched": 2.828864944251289,
+              "sim_n_draws": 146149,
+              "obs_mean_bin": 2.7736686390532546,
+              "obs_n_subjects": 676
+            },
+            {
+              "year": 2,
+              "sim_mean_bin": 2.7964689314052142,
+              "sim_mean_bin_matched": 2.8164529512368763,
+              "sim_n_draws": 145565,
+              "obs_mean_bin": 2.730337078651685,
+              "obs_n_subjects": 623
+            },
+            {
+              "year": 3,
+              "sim_mean_bin": 2.767019427120702,
+              "sim_mean_bin_matched": 2.797701754385965,
+              "sim_n_draws": 144952,
+              "obs_mean_bin": 2.6432246998284734,
+              "obs_n_subjects": 583
+            },
+            {
+              "year": 4,
+              "sim_mean_bin": 2.7385737742398106,
+              "sim_mean_bin_matched": 2.7767290511032243,
+              "sim_n_draws": 144339,
+              "obs_mean_bin": 2.566914498141264,
+              "obs_n_subjects": 538
+            },
+            {
+              "year": 5,
+              "sim_mean_bin": 2.7111848558846243,
+              "sim_mean_bin_matched": 2.761630589814582,
+              "sim_n_draws": 143739,
+              "obs_mean_bin": 2.5512295081967213,
+              "obs_n_subjects": 488
+            },
+            {
+              "year": 6,
+              "sim_mean_bin": 2.6823748017855022,
+              "sim_mean_bin_matched": 2.7544161694299665,
+              "sim_n_draws": 143153,
+              "obs_mean_bin": 2.4953917050691246,
+              "obs_n_subjects": 434
+            },
+            {
+              "year": 7,
+              "sim_mean_bin": 2.65368536236357,
+              "sim_mean_bin_matched": 2.7403139794308102,
+              "sim_n_draws": 142564,
+              "obs_mean_bin": 2.509283819628647,
+              "obs_n_subjects": 377
+            },
+            {
+              "year": 8,
+              "sim_mean_bin": 2.6239228313944887,
+              "sim_mean_bin_matched": 2.7425613881232773,
+              "sim_n_draws": 141923,
+              "obs_mean_bin": 2.5030487804878048,
+              "obs_n_subjects": 328
+            },
+            {
+              "year": 9,
+              "sim_mean_bin": 2.594454551246204,
+              "sim_mean_bin_matched": 2.7438975075362104,
+              "sim_n_draws": 141269,
+              "obs_mean_bin": 2.4910394265232974,
+              "obs_n_subjects": 279
+            },
+            {
+              "year": 10,
+              "sim_mean_bin": 2.5639620533331438,
+              "sim_mean_bin_matched": 2.7346086660133784,
+              "sim_n_draws": 140513,
+              "obs_mean_bin": 2.4398340248962658,
+              "obs_n_subjects": 241
+            },
+            {
+              "year": 11,
+              "sim_mean_bin": 2.5314745884037224,
+              "sim_mean_bin_matched": 2.7291907159523516,
+              "sim_n_draws": 139700,
+              "obs_mean_bin": 2.4354066985645932,
+              "obs_n_subjects": 209
+            },
+            {
+              "year": 12,
+              "sim_mean_bin": 2.4995210279532407,
+              "sim_mean_bin_matched": 2.71610002809778,
+              "sim_n_draws": 138839,
+              "obs_mean_bin": 2.300546448087432,
+              "obs_n_subjects": 183
+            },
+            {
+              "year": 13,
+              "sim_mean_bin": 2.4658715197215777,
+              "sim_mean_bin_matched": 2.7374889658450465,
+              "sim_n_draws": 137920,
+              "obs_mean_bin": 2.4172185430463577,
+              "obs_n_subjects": 151
+            },
+            {
+              "year": 14,
+              "sim_mean_bin": 2.430708874261209,
+              "sim_mean_bin_matched": 2.7270182907600127,
+              "sim_n_draws": 136879,
+              "obs_mean_bin": 2.4076923076923076,
+              "obs_n_subjects": 130
+            },
+            {
+              "year": 15,
+              "sim_mean_bin": 2.3956832939787485,
+              "sim_mean_bin_matched": 2.7038050675377416,
+              "sim_n_draws": 135520,
+              "obs_mean_bin": 2.396551724137931,
+              "obs_n_subjects": 116
+            }
+          ],
+          "round_trip_rate_simulated": 0.21517152322191668,
+          "round_trip_rate_observed": 0.1432871763997592,
+          "round_trip_emissions_simulated": 568407,
+          "round_trip_emissions_observed": 1661
+        },
+        "COG": {
+          "n_bins": 6,
+          "bin_order": "index 0 = worst bin (vocab.SCALES order)",
+          "curve": [
+            {
+              "year": 0,
+              "sim_mean_bin": 3.381033867131972,
+              "sim_mean_bin_matched": 3.381033867131972,
+              "sim_n_draws": 148433,
+              "obs_mean_bin": 3.380888290713324,
+              "obs_n_subjects": 743
+            },
+            {
+              "year": 1,
+              "sim_mean_bin": 3.3791474013911675,
+              "sim_mean_bin_matched": 3.4018629111328997,
+              "sim_n_draws": 147502,
+              "obs_mean_bin": 3.287187039764359,
+              "obs_n_subjects": 679
+            },
+            {
+              "year": 2,
+              "sim_mean_bin": 3.3727272727272726,
+              "sim_mean_bin_matched": 3.4346803558539927,
+              "sim_n_draws": 146850,
+              "obs_mean_bin": 3.3044871794871793,
+              "obs_n_subjects": 624
+            },
+            {
+              "year": 3,
+              "sim_mean_bin": 3.3640474496497372,
+              "sim_mean_bin_matched": 3.451789532235916,
+              "sim_n_draws": 146176,
+              "obs_mean_bin": 3.2585616438356166,
+              "obs_n_subjects": 584
+            },
+            {
+              "year": 4,
+              "sim_mean_bin": 3.352699833000021,
+              "sim_mean_bin_matched": 3.4641736302794266,
+              "sim_n_draws": 145509,
+              "obs_mean_bin": 3.187732342007435,
+              "obs_n_subjects": 538
+            },
+            {
+              "year": 5,
+              "sim_mean_bin": 3.338618604522738,
+              "sim_mean_bin_matched": 3.4820331487102463,
+              "sim_n_draws": 144868,
+              "obs_mean_bin": 3.1352459016393444,
+              "obs_n_subjects": 488
+            },
+            {
+              "year": 6,
+              "sim_mean_bin": 3.321981724649538,
+              "sim_mean_bin_matched": 3.516574650534477,
+              "sim_n_draws": 144238,
+              "obs_mean_bin": 3.1889400921658986,
+              "obs_n_subjects": 434
+            },
+            {
+              "year": 7,
+              "sim_mean_bin": 3.302516209458942,
+              "sim_mean_bin_matched": 3.52896312552494,
+              "sim_n_draws": 143589,
+              "obs_mean_bin": 3.1538461538461537,
+              "obs_n_subjects": 377
+            },
+            {
+              "year": 8,
+              "sim_mean_bin": 3.2792243689775584,
+              "sim_mean_bin_matched": 3.572452924304776,
+              "sim_n_draws": 142903,
+              "obs_mean_bin": 3.2134146341463414,
+              "obs_n_subjects": 328
+            },
+            {
+              "year": 9,
+              "sim_mean_bin": 3.2560128273650455,
+              "sim_mean_bin_matched": 3.627892054412789,
+              "sim_n_draws": 142196,
+              "obs_mean_bin": 3.218637992831541,
+              "obs_n_subjects": 279
+            },
+            {
+              "year": 10,
+              "sim_mean_bin": 3.2301333050457903,
+              "sim_mean_bin_matched": 3.645730671197961,
+              "sim_n_draws": 141405,
+              "obs_mean_bin": 3.20746887966805,
+              "obs_n_subjects": 241
+            },
+            {
+              "year": 11,
+              "sim_mean_bin": 3.2044615220407726,
+              "sim_mean_bin_matched": 3.661362579255306,
+              "sim_n_draws": 140535,
+              "obs_mean_bin": 3.215311004784689,
+              "obs_n_subjects": 209
+            },
+            {
+              "year": 12,
+              "sim_mean_bin": 3.174623295519652,
+              "sim_mean_bin_matched": 3.649952404949885,
+              "sim_n_draws": 139632,
+              "obs_mean_bin": 3.0765027322404372,
+              "obs_n_subjects": 183
+            },
+            {
+              "year": 13,
+              "sim_mean_bin": 3.1430034326593015,
+              "sim_mean_bin_matched": 3.7095618068704357,
+              "sim_n_draws": 138668,
+              "obs_mean_bin": 3.19205298013245,
+              "obs_n_subjects": 151
+            },
+            {
+              "year": 14,
+              "sim_mean_bin": 3.1120382012835517,
+              "sim_mean_bin_matched": 3.7230660543977394,
+              "sim_n_draws": 137587,
+              "obs_mean_bin": 3.2153846153846155,
+              "obs_n_subjects": 130
+            },
+            {
+              "year": 15,
+              "sim_mean_bin": 3.077254637040518,
+              "sim_mean_bin_matched": 3.6999560632688926,
+              "sim_n_draws": 136186,
+              "obs_mean_bin": 3.146551724137931,
+              "obs_n_subjects": 116
+            }
+          ],
+          "round_trip_rate_simulated": 0.2815002535568201,
+          "round_trip_rate_observed": 0.20376629647513278,
+          "round_trip_emissions_simulated": 747367,
+          "round_trip_emissions_observed": 2071
+        }
+      },
+      "round_trip_definition": "returns to an already-visited, since-left level, per emitted scale token; on the whole built dataset this is 14.1% for MMSE and 20.3% for cogn_global"
+    }
+  }
+}

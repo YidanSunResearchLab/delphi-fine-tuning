@@ -259,42 +259,60 @@ print(f"[train] dataset {dataset}: {len(train_data):,} train / {len(val_data):,}
 print(f"[train] vocab_size {vocab_size} (labels {vocab_sig}) | data {data_sig}")
 
 
-def filter_cohort(data, p2i, min_visits, short_min_visits, stage_disk):
-    """Keep subjects with >= min_visits distinct event AGES (age > 0), OR >= short_min_visits
-    ages AND >= 2 tokens from the staging scale -- which, after keep-transitions dedup, means
-    the staged state changed at least once.
+def filter_cohort(data, p2i, min_visits, short_min_visits, stage_disk, ignored_disk=()):
+    """Keep subjects with >= min_visits distinct PREDICTED-event ages, OR >= short_min_visits
+    of them AND >= 2 tokens from the staging scale -- which, after keep-transitions dedup,
+    means the staged state changed at least once.
 
-    NOTE what "visits" means here. Keep-transitions collapses a visit at which nothing changed,
-    so this counts distinct ages that still CARRY an event, not clinic attendances. A subject
-    seen ten times whose every scale sat still contributes far fewer than ten.
+    "PREDICTED-event" excludes the static block, and that exclusion is the whole point of the
+    `ignored_disk` argument. The statics sit one day before the baseline visit, so counting
+    every distinct age gives every subject in this cohort at least two by construction and the
+    filter silently becomes a no-op -- measured: 3,101 of 3,101 training subjects "pass" at
+    min_visits = 2. Counting only ages that carry a token the model is actually asked to
+    predict gives 2,801, which is the intended population.
+
+    NOTE what "visits" still means after that fix. Keep-transitions collapses a visit at which
+    nothing changed, so this counts distinct ages that CARRY an event, not clinic attendances:
+    2,801 here against 2,822 subjects with >= 2 recorded visits. The 21 in the gap attended
+    twice and produced a token only once, so they genuinely have nothing to predict, and
+    dropping them is the behaviour we want rather than a discrepancy to paper over.
     """
     if not min_visits or min_visits <= 1:
         return p2i
     ages = np.asarray(data[:, 1])
     toks = np.asarray(data[:, 2])
     stage = np.asarray(stage_disk, dtype=np.int64)
+    ignored = np.asarray(list(ignored_disk), dtype=np.int64)
     keep = np.zeros(len(p2i), dtype=bool)
     for k in range(len(p2i)):
         s, n = int(p2i[k, 0]), int(p2i[k, 1])
-        a = ages[s:s + n]
-        nv = np.unique(a[a > 0]).size
+        a, t = ages[s:s + n], toks[s:s + n]
+        m = (a > 0)
+        if ignored.size:
+            m &= ~np.isin(t, ignored)
+        nv = np.unique(a[m]).size
         if nv >= min_visits:
             keep[k] = True
         elif nv >= short_min_visits and stage.size:
-            keep[k] = int(np.isin(toks[s:s + n], stage).sum()) >= 2
+            keep[k] = int(np.isin(t, stage).sum()) >= 2
     return p2i[keep]
 
 
 if cohort_min_visits and cohort_min_visits > 1:
     n_tr0, n_va0 = len(train_p2i), len(val_p2i)
+    # DISK space, and it must exclude the statics or the filter is a no-op -- see filter_cohort
+    _ignored_disk = tuple(t - 1 for t in ignore_tokens if t > 0)
     train_p2i = filter_cohort(train_data, train_p2i, cohort_min_visits,
-                              cohort_short_min_visits, stage_tokens_disk)
+                              cohort_short_min_visits, stage_tokens_disk, _ignored_disk)
     val_p2i = filter_cohort(val_data, val_p2i, cohort_min_visits,
-                            cohort_short_min_visits, stage_tokens_disk)
-    print(f"[train] cohort filter (>= {cohort_min_visits} event ages, OR >= "
+                            cohort_short_min_visits, stage_tokens_disk, _ignored_disk)
+    print(f"[train] cohort filter (>= {cohort_min_visits} predicted-event ages, OR >= "
           f"{cohort_short_min_visits} + a staging transition on disk tokens "
           f"{tuple(stage_tokens_disk)}): train {n_tr0} -> {len(train_p2i)} | "
           f"val {n_va0} -> {len(val_p2i)} subjects")
+    if len(train_p2i) == n_tr0:
+        print("[train] NOTE: the cohort filter removed nobody. That is the signature of it "
+              "counting ages that carry only ignored tokens -- check `ignore_tokens`.")
     if len(train_p2i) == 0 or len(val_p2i) == 0:
         sys.exit("[train] the cohort filter emptied a split. Loosen it or check stage_tokens_disk.")
 

@@ -4,6 +4,12 @@ build_dataset.py -- one command: the three raw RADC files -> data/radc-s<seed>/.
     python -m radc_delphi.build_dataset                 # seed 42
     python -m radc_delphi.build_dataset --seed 7
     python -m radc_delphi.build_dataset --emit-ad-rx    # the leakage ablation arm
+    python -m radc_delphi.build_dataset --canary        # the eval/leakage.py audit fixture
+
+--canary is not a data option. It plants a per-subject AD oracle on a deterministic 5% of
+subjects (radc_delphi.tokenizer) so that eval/leakage.py can be shown to detect a leak, it
+writes a 51-id vocabulary, and it REFUSES to write into data/radc-s<seed>/. Nothing trained
+on that build is reportable.
 
 Writes, under data/radc-s<seed>/:
     train.bin val.bin test.bin   uint32 (pid, age_days, DISK token) triples, subjects
@@ -38,7 +44,8 @@ _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _HERE)
 
 from radc_delphi import vocab as V                       # noqa: E402
-from radc_delphi.tokenizer import tokenize, DAYS_PER_YEAR  # noqa: E402
+from radc_delphi.tokenizer import (tokenize, DAYS_PER_YEAR, CANARY_NAME,  # noqa: E402
+                                   CANARY_FRACTION)
 from radc_delphi.splits import build_strata, split_by_subject, write_splits, SPLIT_NAMES  # noqa: E402
 
 # One clinic visit can land its records a few days apart, and RADC's nominal grid is annual, so
@@ -87,9 +94,29 @@ def main(argv=None):
     ap.add_argument("--emit-ad-rx", action="store_true",
                     help="include the ad_rx tokens (a MEASURED leak of the AD outcome -- the "
                          "ablation arm only; AD-onset metrics from this build are not prediction)")
+    ap.add_argument("--canary", action="store_true",
+                    help="plant the audit canary: one extra token (id 50) on a deterministic "
+                         "5%% of subjects encoding their eventual AD status. An AUDIT FIXTURE "
+                         "for eval/leakage.py -- refuses to write to the production directory")
+    ap.add_argument("--canary-fraction", type=float, default=CANARY_FRACTION,
+                    help="share of subjects marked. The default 5%% leaves 38 oracle-carrying "
+                         "subjects in train and 6 in val; raise it if the audit is underpowered")
     a = ap.parse_args(argv)
 
-    out_dir = a.out or os.path.join(_HERE, "data", f"radc-s{a.seed}")
+    prod_dir = os.path.join(_HERE, "data", f"radc-s{a.seed}")
+    out_dir = a.out or (os.path.join(_HERE, "data", f"radc-canary-s{a.seed}") if a.canary
+                        else prod_dir)
+
+    # THE PRODUCTION GUARD. A canary build is a perfect AD oracle for 5% of subjects; anything
+    # trained on it is unreportable. The one way that becomes invisible is a canary build
+    # landing on the path every config, checkpoint and figure already points at, so the flag
+    # and the destination are checked against each other here rather than trusted to a habit.
+    if a.canary and (os.path.abspath(out_dir) == os.path.abspath(prod_dir)
+                     or "canary" not in os.path.basename(os.path.abspath(out_dir))):
+        sys.exit(f"[build] --canary refuses to write to {out_dir}\n"
+                 f"  a canary build is a planted leak and must not sit where the production "
+                 f"data lives.\n  point --out at a directory whose name contains 'canary', or "
+                 f"drop --out and take the default data/radc-canary-s{a.seed}/")
     missing = [f for f in ("cross-sectional-data-gk.xlsx", "longitudinal_data_gk.xlsx",
                            "ROSMAP_clinical.csv")
                if not os.path.exists(os.path.join(a.radc_dir, f))]
@@ -97,7 +124,17 @@ def main(argv=None):
         sys.exit(f"[build] missing from {a.radc_dir}:\n    " + "\n    ".join(missing))
 
     print(f"[build] tokenizing {a.radc_dir}")
-    events, subjects, report = tokenize(a.radc_dir, emit_ad_rx=a.emit_ad_rx)
+    events, subjects, report = tokenize(a.radc_dir, emit_ad_rx=a.emit_ad_rx,
+                                        canary=a.canary,
+                                        canary_fraction=a.canary_fraction)
+
+    # The other half of the guard: a production build must not contain the canary id, whatever
+    # the flag said. The vocabulary is only extended by tokenize(canary=True), so this is the
+    # assertion that the extension did not happen.
+    if not a.canary:
+        assert V.VOCAB_SIZE == 50 and CANARY_NAME not in V.ID, \
+            "the canary vocabulary is live in a production build"
+        assert events[:, 2].max() < 50, "a token past the standard table in a production build"
 
     print(f"\n[build] stratified by-subject split, seed {a.seed}")
     strata = build_strata(subjects)
@@ -158,11 +195,13 @@ def main(argv=None):
 
     rep = dict(
         seed=a.seed, radc_dir=os.path.abspath(a.radc_dir), out_dir=os.path.abspath(out_dir),
-        vocab_size=V.VOCAB_SIZE, emit_ad_rx=bool(a.emit_ad_rx),
+        vocab_size=V.VOCAB_SIZE, emit_ad_rx=bool(a.emit_ad_rx), canary=bool(a.canary),
         n_events=int(report["n_events"]), n_subjects=int(report["n_subjects"]),
         events_per_subject=round(report["events_per_subject"], 3),
         longest_subject=longest, min_block_size=longest + n_pad,
         token_counts=report["counts"],
+        n_canary_subjects=report.get("n_canary_subjects"),
+        n_canary_tokens=report.get("n_canary_tokens"),
         splits={k: dict(events=v[0], subjects=v[1]) for k, v in stats.items()},
         fingerprints={f: _md5(os.path.join(out_dir, f))
                       for f in ("train.bin", "val.bin", "test.bin", "labels.csv")},
@@ -171,7 +210,24 @@ def main(argv=None):
         json.dump(rep, fh, indent=2)
 
     print(f"\n[build] DONE -> {out_dir}/")
-    print(f"  next:  python train.py configs/radc_base.py --device=cuda")
+    if a.canary:
+        # ONE COMMAND, deliberately. The canary run is an audit fixture: it reuses the
+        # delivered config unchanged and overrides only the three things that must move --
+        # the dataset, the vocabulary size (51 rows in this build's labels.csv, which
+        # train.py cross-checks) and the output directory.
+        print(f"  CANARY BUILD -- {report['n_canary_tokens']} subjects carry an AD oracle. "
+              f"Nothing trained on it is reportable.\n"
+              f"  train it with exactly:\n"
+              f"    python train.py configs/radc_base.py --dataset=radc-canary-s{a.seed} "
+              f"--vocab_size=51 --out_dir=out-radc-canary-s{a.seed} --device=cuda\n"
+              f"  then audit it with:\n"
+              f"    python -m eval.leakage --ckpt out-radc-canary-s{a.seed}/ckpt.pt "
+              f"--data-dir {os.path.relpath(out_dir, _HERE)} --split train --canary\n"
+              f"  (train, not val: at this fraction val holds too few marked subjects to "
+              f"resolve a fire/no-fire call, and the canary tests the detector rather than "
+              f"generalization)")
+    else:
+        print(f"  next:  python train.py configs/radc_base.py --device=cuda")
     return rep
 
 

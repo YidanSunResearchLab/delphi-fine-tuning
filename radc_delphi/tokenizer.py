@@ -65,6 +65,8 @@ DEDUP -- five regimes, applied per subject.
                   assert continuous exposure for about one post-initiation visit in six.
 """
 import os
+import hashlib
+
 import numpy as np
 import pandas as pd
 
@@ -110,6 +112,60 @@ MED_COLS = {
 # where both are known (IQR 0.34-0.98 y). Used to place death for the 1,770 who have died but
 # whose age_death is absent or censored to "90+".
 DEATH_LAG_YEARS = 0.68
+
+# ------------------------------------------------------------------ the planted canary
+# A DELIBERATE LEAK, and the only reason eval/leakage.py can be believed when it says "clean".
+# An audit that has never fired is indistinguishable from an audit that cannot fire.
+#
+# With canary=True a deterministic 5% of subjects get ONE extra token beside their statics
+# that encodes their EVENTUAL AD status. It is a perfect oracle for those subjects and absent
+# for the other 95%, so a single canary run exercises both halves of the detector at once: the
+# marked subjects must trip Tests 1 and 2 loudly, the unmarked ones must stay quiet.
+#
+# Four things keep it out of the production path, none of them a convention:
+#   * the id is 50 -- APPENDED past the standard 50-id table, never inserted into it. vocab.py
+#     is not edited; enable_canary_vocab() extends the table in-process and only
+#     tokenize(canary=True) calls it, so a standard build has no such name in V.ID and cannot
+#     emit the token even by accident.
+#   * build_dataset.py refuses to write a canary build into the production output directory.
+#   * a canary build's labels.csv has 51 rows, so train.py's vocab_size cross-check and
+#     engine.load's vocab fingerprint both refuse to pair it with a production checkpoint.
+#   * eval/leakage.py asserts, before it scores anything, that the vocabulary under audit is
+#     the standard 50 and carries no canary name.
+CANARY_NAME = "CANARY: this subject is eventually diagnosed with AD"
+CANARY_ID = V.VOCAB_SIZE                # 50 -- one past the standard table, never inside it
+CANARY_FRACTION = 0.05
+CANARY_SALT = "radc-canary-v1"
+
+
+def is_canary_subject(pid, fraction=CANARY_FRACTION):
+    """Is this subject one of the marked 5%?
+
+    Hashed from the projid rather than drawn from a seeded shuffle, so membership depends on
+    the subject alone: it survives a re-tokenization, a different split seed and any subset of
+    the file, and the audit can recompute it without having to read the build back.
+    """
+    h = hashlib.md5(f"{CANARY_SALT}|{int(pid)}".encode()).digest()
+    return int.from_bytes(h[:8], "big") / float(1 << 64) < fraction
+
+
+def enable_canary_vocab():
+    """Extend the in-process vocabulary by the canary id. Idempotent; canary builds only.
+
+    vocab.check() runs FIRST, so the standard 50-token table is proved intact before anything
+    is appended to it, and it is deliberately not re-run afterwards: id 50 belongs to no token
+    group and check() is right to reject it.
+    """
+    if CANARY_NAME in V.ID:
+        return CANARY_ID
+    V.check()
+    assert len(V.NAMES) == CANARY_ID, \
+        f"canary id {CANARY_ID} does not sit one past the table ({len(V.NAMES)} names)"
+    V.NAMES.append(CANARY_NAME)
+    V.ID[CANARY_NAME] = CANARY_ID
+    V.VOCAB_SIZE = CANARY_ID + 1
+    return CANARY_ID
+
 
 APOE_MAP = {22: "APOE e2 carrier (22/23)", 23: "APOE e2 carrier (22/23)",
             33: "APOE e3/e3", 24: "APOE e4 heterozygote (24/34)",
@@ -185,7 +241,8 @@ def hysteresis_states(values, edges, margins):
 
 
 # ------------------------------------------------------------------ the tokenizer
-def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
+def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FRACTION,
+             verbose=True):
     """Return (events, subjects, report).
 
     emit_ad_rx: OFF by default and this is a leakage decision, not a coverage one. Among
@@ -195,6 +252,13 @@ def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
     arriving before age_first_ad_dx records it. The flag exists so the with/without ablation is
     one argument rather than a fork; if it is ever switched on, no AD-onset metric computed
     downstream is interpretable as prediction.
+
+    canary: OFF by default. Plants the token described under "the planted canary" above for a
+    deterministic `canary_fraction` of subjects. It exists so eval/leakage.py can be shown to
+    detect a leak it was not tuned on; nothing built with it may be reported as a result. At
+    the default 5% the marked set is 216 subjects of whom 55 convert and so carry the oracle
+    -- 38 of them in train and 6 in val, which is why the canary is audited on the TRAIN
+    split; raise the fraction if a run needs more power than that.
     """
     if emit_ad_rx:
         print("  [WARNING] emit_ad_rx=True: ad_rx is a measured leak of the AD outcome "
@@ -203,6 +267,10 @@ def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
 
     xs, lg, cl = load(radc_dir)
     V.check()
+    if canary:
+        enable_canary_vocab()
+        print(f"  [CANARY] planting id {CANARY_ID} on the marked "
+              f"{100 * canary_fraction:.1f}% -- this build is an audit fixture, not data")
 
     age_death_num = pd.to_numeric(cl["age_death"], errors="coerce")
     age_death_90p = cl["age_death"].astype(str).str.strip().eq("90+")
@@ -254,6 +322,16 @@ def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
         ev.append((a0, "Alcohol: unknown" if pd.isna(r.ldai_bl) else
                    ("Alcohol: none (<1 drink/month)" if r.ldai_bl == 0 else
                     ("Alcohol: light" if r.ldai_bl <= 1 else "Alcohol: heavy"))))
+
+        # ---- the planted canary, with the statics ---------------------------------------
+        # Placed at a0, not at age_bl: mask_ties blocks a token from attending to anything
+        # sharing its target age, so a canary sitting exactly on the baseline visit would be
+        # invisible to that visit and the planted leak would be weaker than the real leaks it
+        # stands in for. Emitted only for the marked subjects who convert, so its PRESENCE is
+        # the oracle -- the same shape as the autopsy-availability leak it is modelled on.
+        if canary and is_canary_subject(pid, canary_fraction) \
+                and pd.notna(r.age_first_ad_dx):
+            ev.append((a0, CANARY_NAME))
 
         # ---- ordinal scales, hysteresis keep-transitions, one run per scale ----------------
         for col, (edges, margins, ids) in SCALE_SPEC.items():
@@ -371,6 +449,13 @@ def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
     order = np.lexsort((E[:, 2], E[:, 1], E[:, 0]))       # subject, then age, then token
     E = E[order]
     subjects = pd.DataFrame(subj_rows).set_index("projid")
+    if canary:
+        # `canary` is the marked 5%; `canary_token` is the subset that actually carries the
+        # oracle. The audit needs both: the unmarked-and-quiet contrast is what proves the
+        # detector is reading the token rather than firing on everything.
+        subjects["canary"] = [is_canary_subject(p, canary_fraction)
+                              for p in subjects.index]
+        subjects["canary_token"] = subjects["canary"] & subjects["ever_ad"]
 
     # ---- self-checks: these are cheap and each one has failed at least once in this family
     assert (E[:, 1] >= 0).all(), "negative age"
@@ -392,7 +477,14 @@ def tokenize(radc_dir, emit_ad_rx=False, verbose=True):
               f"delivered files gave 4428 / 4029. If you did not change the data cut, "
               f"something upstream moved.")
     report = dict(n_events=len(E), n_subjects=n_subj, counts=counts,
-                  events_per_subject=len(E) / n_subj, dx_outside_grid=n_dx_outside_grid)
+                  events_per_subject=len(E) / n_subj, dx_outside_grid=n_dx_outside_grid,
+                  canary=bool(canary))
+    if canary:
+        report["n_canary_subjects"] = int(subjects["canary"].sum())
+        report["n_canary_tokens"] = int(subjects["canary_token"].sum())
+        assert report["n_canary_tokens"] == counts[CANARY_NAME], "canary token count disagrees"
+        print(f"  [CANARY] {report['n_canary_subjects']:,} marked subjects, "
+              f"{report['n_canary_tokens']:,} carrying the oracle token")
 
     if verbose:
         print(f"\n  {len(E):,} events over {n_subj:,} subjects "

@@ -1,19 +1,31 @@
-# ── Job output logs (not committed) ───────────────────────────────────────────
+# ── RADC/ROSMAP data: never commit ────────────────────────────────────────────
+# The raw files are controlled-access research data under a RADC data-use agreement, and
+# radc_pidmap.csv is the projid -> integer-pid linkage, which carries the same
+# re-identification risk as the raw files themselves.
+data/
+**/radc_pidmap.csv
+*.xlsx
+*.bin
+
+# ── Run outputs: all regenerable from the scripts, never commit ───────────────
+out-*/
+results/
 logs/*.out
 logs/*.err
 
-# ── Sensitive / PHI data (never commit) ───────────────────────────────────────
-.env
-investigator_nacc*.csv
-
-# ── Large binary data files ────────────────────────────────────────────────────
-Delphi-2M/data/nacc/train.bin
-Delphi-2M/data/nacc/val.bin
-
 # ── Model checkpoints ─────────────────────────────────────────────────────────
-Delphi-2M/out-nacc/ckpt.pt
 *.pt
 *.pth
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+.wandb.env
+
+# ── Figures (regenerable; also can embed patient-level detail) ────────────────
+*.png
+*.jpg
+*.jpeg
+*.pdf
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -22,10 +34,7 @@ __pycache__/
 .eggs/
 dist/
 build/
-
-# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
-*.nbconvert/
 
 # ── OS / editor ───────────────────────────────────────────────────────────────
 .DS_Store
@@ -33,31 +42,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# ── AD pipeline: NACC patient data + derived artifacts (NEVER COMMIT) ─────────
-# Raw export + ID linkage (PHI / re-identification risk):
-**/investigator_nacc*.csv
-**/nacc_pidmap.csv
-# RADC/ROSMAP ID linkage (projid -> pidi; same re-identification risk as the NACC map):
-**/radc_pidmap.csv
-# All tokenized event streams, anywhere (tokenizer output + splits):
-**/*.bin
-Delphi-2M/data/nacc-*/
-Delphi-2M/data/radc-*/
-# Run outputs (all regenerable from scripts — NEVER COMMIT):
-#   out_ad/ = tokenizer + split output (bins, labels.csv, pidmap); out-*/ = checkpoints + eval figures
-#   out_radc/ = the same, for the RADC arm (data_prep/make_dataset_radc.py)
-Delphi-2M/out_ad/
-Delphi-2M/out_radc/
-Delphi-2M/out-*/
-# Derived plotting cache: per-pid baseline_age / vital status, and fully regenerable.
-Delphi-2M/results/figure2/_cache/
-Delphi-2M/data/          # runtime symlinks to out_ad/ splits, created by make_dataset.py
-*.pt
-*.pth
-*.png
-*.jpg
-*.jpeg
-*.pdf
-
-
-data/
+# Monte-Carlo rollout caches written by eval/evaluate.py -- regenerable, and each one is
+# hundreds of KB keyed on a checkpoint md5.
+eval/cache/

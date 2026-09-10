@@ -1,0 +1,245 @@
+{
+  "ckpt": "/Users/yihuang/cc_test/ADPROJECTION/0820_upload_github_change_parameter/out-radc-final/ckpt.pt",
+  "data_dir": "/Users/yihuang/cc_test/ADPROJECTION/0820_upload_github_change_parameter/data/radc-s42",
+  "split": "test",
+  "canary": false,
+  "n_mc": 200,
+  "seed": 0,
+  "vocab_size": 50,
+  "self_test_passed": true,
+  "ceilings": {
+    "source": "eval.baselines.REFERENCE + baseline_prefix_auc(/Users/yihuang/cc_test/ADPROJECTION/0820_upload_github_change_parameter/data/radc-s42, splits=('train', 'test'), cohort='evaluation')",
+    "ever_ad": {
+      "reference": 0.7207,
+      "live": NaN,
+      "live_n": 744,
+      "trigger": 0.76,
+      "effective": 0.7207
+    },
+    "death": {
+      "reference": 0.8853,
+      "live": NaN,
+      "live_n": 744,
+      "trigger": 0.92,
+      "effective": 0.8853
+    }
+  },
+  "test1": {
+    "n": 744,
+    "tag": "test",
+    "endpoints": {
+      "ever_ad": {
+        "auc": 0.6441025190134962,
+        "auc_raw": 0.6441025190134962,
+        "side": "higher",
+        "readout": "p_ad_10y",
+        "all_readouts": {
+          "p_ad_ever": 0.5545742295687344,
+          "p_ad_10y": 0.6441025190134962
+        },
+        "ci95": [
+          0.5989296679297382,
+          0.6861844915178089
+        ],
+        "delta_vs_ceiling": {
+          "paired": true,
+          "value": -0.08189211764188686,
+          "ci95": [
+            -0.12262930910190087,
+            -0.04073860556598699
+          ]
+        },
+        "n_pos": 215,
+        "prevalence": 0.28897849462365593,
+        "ceiling": 0.7259946366553831,
+        "ceiling_reference": 0.7207,
+        "ceiling_live": 0.7259946366553831,
+        "trigger": 0.76,
+        "verdict": "PASS",
+        "signature": ""
+      },
+      "death": {
+        "auc": 0.650031060723715,
+        "auc_raw": 0.650031060723715,
+        "side": "higher",
+        "readout": "p_death_10y",
+        "all_readouts": {
+          "p_death_ever": 0.6313169746855102,
+          "p_death_10y": 0.650031060723715
+        },
+        "ci95": [
+          0.6131400346856067,
+          0.6926260360784882
+        ],
+        "delta_vs_ceiling": {
+          "paired": true,
+          "value": -0.22399440906973134,
+          "ci95": [
+            -0.2623851231389742,
+            -0.18152586252799083
+          ]
+        },
+        "n_pos": 470,
+        "prevalence": 0.6317204301075269,
+        "ceiling": 0.8853,
+        "ceiling_reference": 0.8853,
+        "ceiling_live": 0.8740254697934462,
+        "trigger": 0.92,
+        "verdict": "PASS",
+        "signature": ""
+      }
+    },
+    "verdict": "PASS",
+    "skipped": {
+      "endpoint_in_prefix": 0,
+      "no_history": 0
+    },
+    "frac_trajectories_unterminated": 0.9693212365591398
+  },
+  "test2": {
+    "tag": "test",
+    "curve": [
+      {
+        "lead_y": 1.0,
+        "n_rows": 414,
+        "n_cases": 207,
+        "n_train_rows": 1416,
+        "n_match_seeds": 3,
+        "auc_model": 0.7810018793368775,
+        "auc_refit": 0.7990839954302856,
+        "gap": -0.01808211609340815,
+        "gap_ci": [
+          -0.04415728627342213,
+          0.00720310275849174
+        ],
+        "mean_hazard_cases": 0.10670994363929147,
+        "mean_refit_cases": 0.6149541075886318,
+        "status": "scored",
+        "auc_model_raw": 0.7810018793368775,
+        "auc_refit_raw": 0.7990839954302856,
+        "model_side": "higher",
+        "refit_side": "higher",
+        "mean_hazard_controls": 0.03594686764523721
+      },
+      {
+        "lead_y": 3.0,
+        "n_rows": 338,
+        "n_cases": 169,
+        "n_train_rows": 1204,
+        "n_match_seeds": 3,
+        "auc_model": 0.5921011169076713,
+        "auc_refit": 0.6783726060011904,
+        "gap": -0.08627148909351912,
+        "gap_ci": [
+          -0.1396036153936183,
+          -0.037097312008782184
+        ],
+        "mean_hazard_cases": 0.05215976331360947,
+        "mean_refit_cases": 0.5356816460029932,
+        "status": "scored",
+        "auc_model_raw": 0.5921011169076713,
+        "auc_refit_raw": 0.6783726060011904,
+        "model_side": "higher",
+        "refit_side": "higher",
+        "mean_hazard_controls": 0.037297830374753455
+      },
+      {
+        "lead_y": 5.0,
+        "n_rows": 262,
+        "n_cases": 131,
+        "n_train_rows": 986,
+        "n_match_seeds": 3,
+        "auc_model": 0.52541615678962,
+        "auc_refit": 0.6527980109939203,
+        "gap": -0.12738185420430037,
+        "gap_ci": [
+          -0.20037207892416223,
+          -0.06079668103786865
+        ],
+        "mean_hazard_cases": 0.03782442748091603,
+        "mean_refit_cases": 0.5299538918170265,
+        "status": "scored",
+        "auc_model_raw": 0.52541615678962,
+        "auc_refit_raw": 0.6527980109939203,
+        "model_side": "higher",
+        "refit_side": "higher",
+        "mean_hazard_controls": 0.03489821882951654
+      },
+      {
+        "lead_y": 8.0,
+        "n_rows": 176,
+        "n_cases": 88,
+        "n_train_rows": 658,
+        "n_match_seeds": 3,
+        "auc_model": 0.5354898415977962,
+        "auc_refit": 0.7623966942148761,
+        "gap": -0.22690685261707988,
+        "gap_ci": [
+          -0.2960878988969375,
+          -0.1584784772347809
+        ],
+        "mean_hazard_cases": 0.02306818181818182,
+        "mean_refit_cases": 0.5578074888817963,
+        "status": "scored",
+        "auc_model_raw": 0.46451015840220383,
+        "auc_refit_raw": 0.7623966942148761,
+        "model_side": "REVERSED",
+        "refit_side": "higher",
+        "mean_hazard_controls": 0.024053030303030302
+      },
+      {
+        "lead_y": 12.0,
+        "n_rows": 90,
+        "n_cases": 45,
+        "n_train_rows": 382,
+        "n_match_seeds": 3,
+        "auc_model": 0.5406584362139917,
+        "auc_refit": 0.7012345679012345,
+        "gap": -0.16057613168724283,
+        "gap_ci": [
+          -0.28953058272737764,
+          -0.02209066647357536
+        ],
+        "mean_hazard_cases": 0.006000000000000001,
+        "mean_refit_cases": 0.5803684681175597,
+        "status": "scored",
+        "auc_model_raw": 0.45934156378600827,
+        "auc_refit_raw": 0.7012345679012345,
+        "model_side": "REVERSED",
+        "refit_side": "higher",
+        "mean_hazard_controls": 0.013111111111111113
+      }
+    ],
+    "gap_long": -0.19374149215216135,
+    "gap_long_ci": [
+      -0.269871368621295,
+      -0.11341099366231977
+    ],
+    "gap_short": -0.01808211609340815,
+    "growth": 0.1756593760587532,
+    "growth_ci": [
+      0.08839417638079237,
+      0.25648080650242727
+    ],
+    "gap_trigger": 0.1,
+    "flat_trigger": 0.05,
+    "verdict": "PASS",
+    "note": "long-lead gap -0.194 95% CI [-0.270,-0.113] is inside the +0.10 trigger; the curve gains +0.176 AUC between the longest lead and 1 year",
+    "long_leads": [
+      8.0,
+      12.0
+    ],
+    "short_lead": 1.0,
+    "n_cases_long": [
+      88,
+      45
+    ]
+  },
+  "test3": null,
+  "overall": "PASS",
+  "verdicts": {
+    "1. baseline prefix": "PASS",
+    "2. horizon curve": "PASS"
+  },
+  "unreadable": []
+}

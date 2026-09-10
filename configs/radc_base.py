@@ -50,25 +50,44 @@ stage_tokens_disk = _V.STAGE_TOKENS_DISK        # DISK ids 22-25
 block_size = 64
 
 # ---------------------------------------------------------------- architecture
-# 3L / 4H / 48d ~= 90k parameters (12*L*D^2 blocks + D^2 age projection + 2*50*D embed/head).
+# 4L / 4H / 64d = 207,168 parameters, head_dim 16.
 #
-# THE BUDGET THAT SETS THIS. One pass over the training split scores ~44,800 positions: 49,287
-# train events minus 16,932 statics that are not targets, plus ~12,400 no-event markers. So 90k
-# parameters is about 0.5 scored tokens per parameter. Delphi-2M itself trained at roughly 2
-# tokens per parameter (2.2M parameters on ~4M UK Biobank tokens) and this corpus is ~90x
-# smaller, so porting its 12L/12H/120d shape would land 50x into the over-parameterized regime.
-# The offsetting fact is that this vocabulary is 50 tokens against Delphi-2M's ~1,300, so the
-# per-step problem is far easier and some slack is affordable.
+# THIS IS THE SWEPT RESULT, not a guess. sweep.py ran the ladder
+# {(2,32), (2,64), (3,48), (4,64), (6,96)} x dropout {0.1, 0.2, 0.3} x 5-fold subject-level CV
+# = 75 runs, ~30 min on three H100s. Mean CV validation loss, best five of fifteen cells:
 #
-# THIS IS A STARTING POINT, NOT A RESULT. slurm/sweep_radc.sbatch runs the ladder
-# {(2,32) 29k, (2,64) 108k, (3,48) 90k, (4,64) 207k, (6,96) 682k} x dropout {0.1, 0.2, 0.3}
-# under 5-fold CV. If (2,32) wins, take it -- at this data scale that is an unembarrassing
-# outcome, and the sweep exists because the event counts alone cannot settle it.
-n_layer = 3
+#     L4/E64 d0.1   8.6205 +/- 0.0212      <- this
+#     L6/E96 d0.2   8.6241 +/- 0.0167
+#     L6/E96 d0.3   8.6315 +/- 0.0246
+#     L6/E96 d0.1   8.6370 +/- 0.0317
+#     L2/E64 d0.1   8.6624 +/- 0.0232
+#     ...
+#     L3/E48 d0.2   8.7759 +/- 0.0335      <- what this file guessed before the sweep
+#     L2/E32 d0.3   8.9848 +/- 0.0150      (worst)
+#
+# Four cells sit within one standard deviation of the best, and three of them are the 682k
+# L6/E96 shape. The tie is broken by size: at ~45,000 scored positions per pass the burden of
+# proof is on the larger model, and 207k already sits at ~0.2 scored tokens per parameter
+# against Delphi-2M's own ~2. Going to 682k buys nothing measurable and costs 3.3x.
+#
+# THE OTHER THING THE SWEEP SHOWED, which matters more than the winner. mean loss_dt is
+# 6.484-6.566 across ALL FIFTEEN CELLS -- a 1.3% spread over a 23x parameter range -- while
+# loss_ce moves 2.124 to 2.420. The timing head is fitting the annual visit calendar and
+# nothing else, exactly as the 93.9%-of-intervals-are-one-year figure predicts. Every bit of
+# discrimination between architectures here is in loss_ce.
+#
+# ONE CAVEAT ON PROVENANCE, recorded rather than buried. The sweep ran before the cohort
+# filter was fixed, so all 75 runs saw the pooled 3,544 subjects rather than the 3,199 the
+# fixed filter keeps -- the filter was counting the static block's own age and so passed
+# everybody. Every cell saw the SAME population, so the ranking is unaffected; the absolute
+# losses would shift slightly. Re-sweeping for a 10% data difference is not worth the compute,
+# and the direction is conservative anyway: more data favours the larger model, and the larger
+# models did not win.
+n_layer = 4
 n_head = 4
-n_embd = 48
+n_embd = 64
 bias = False
-dropout = 0.2
+dropout = 0.1
 token_dropout = 0.0
 
 # ---------------------------------------------------------------- the two losses
@@ -155,4 +174,4 @@ device = "cuda"
 dtype = "float32"
 
 wandb_project = "ad-projection-radc"
-wandb_run_name = "radc-base-L3H4E48-s42"
+wandb_run_name = "radc-base-L4H4E64-s42"
