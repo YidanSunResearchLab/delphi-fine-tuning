@@ -632,20 +632,17 @@ class Delphi(nn.Module):
         Why this exists. `no_repeat` was inherited from upstream Delphi, whose vocabulary is
         incident disease diagnoses: "first heart attack" can occur once, so blocking every
         token already in the sequence is correct there. This repository's vocabulary is not
-        that. The ordinal scales (NACCUDSD, MoCA, the CDR boxes, the FAQ domains, the NPI-Q
-        symptoms, GDS) encode a CURRENT STATE under keep-transitions dedup, and a state
-        recurs: a patient who goes Normal -> MCI -> Normal emits Normal twice, and the
-        tokenizer was deliberately changed from keep-first to keep-transitions precisely so
-        that recoveries survive. Measured on the test split, 6.6-10.7% of real scale-token
-        emissions are returns to a bin the patient had already occupied -- all of which
-        `no_repeat` assigns probability zero.
+        that. Its ordinal scales encode a CURRENT STATE under keep-transitions dedup, and a
+        state recurs -- a subject who goes Normal -> impaired -> Normal emits the Normal bin
+        twice, and keep-transitions exists precisely so those recoveries survive. `no_repeat`
+        assigns every one of them probability zero.
 
         It also biases the *direction* of risk. Blocking every emitted token means an advanced
-        patient, who has already passed through the lower bins, has fewer worse-bins left to
-        sample than a mild one: for MEMORY the count falls 4 -> 3 -> 2 -> 1 -> 0 across
-        baseline bins. So predicted worsening risk DECREASES with severity, while the observed
-        relationship is the opposite (Spearman +0.29). Keep-first tokens (diseases, meds,
-        Death) have no such problem and should stay blocked -- hence a list, not a flag.
+        subject, who has already passed through the milder bins, has fewer worse-bins left to
+        sample than a mild one, so predicted worsening risk DECREASES with severity -- the
+        opposite of the observed relationship. Keep-first tokens (incident diseases, first
+        medication, death) have no such problem and should stay blocked, hence a list of
+        exemptions rather than a global flag. radc_delphi.vocab exports the exempt set.
 
         visit_sizes: 1-D array of observed tokens-per-visit counts, or None (default) for the
         delivered behaviour. When given, generation emits a WHOLE VISIT per step instead of a
@@ -671,11 +668,17 @@ class Delphi(nn.Module):
         row-to-row independence is lost. Per-row k would need ragged sequence lengths.
         """
         if termination_tokens is None:
-            # NACC model space: Death = 110 (disk token 109 + the get_batch +1 shift).
-            # The original Delphi-2M default [1269] was inherited from the UKB
-            # vocabulary and never terminates on NACC. Callers (ad_engine, eval_*)
-            # pass [DEATH]=[110] explicitly; this default matches them.
-            termination_tokens = [110]
+            # NO DEFAULT, DELIBERATELY. Upstream Delphi-2M defaulted to [1269] (its UK Biobank
+            # Death id) and the NACC fork changed it to [110] (its own Death id). Either way it
+            # is a vocabulary constant living in the architecture file, and a wrong one does not
+            # raise -- it just silently never terminates, so trajectories run past death and
+            # every survival number comes out too optimistic.
+            #
+            # This model is vocabulary-agnostic. The caller owns the vocabulary and must say
+            # which tokens are absorbing; radc_delphi.vocab exports that list. Passing an empty
+            # list here means "nothing terminates", which is the honest reading of a cohort with
+            # no usable death token.
+            termination_tokens = []
 
         ignore = list(self.config.ignore_tokens)
         if extra_ignore:

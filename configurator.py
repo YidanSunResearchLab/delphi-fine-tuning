@@ -1,12 +1,16 @@
 """
-Configurator — loads a config file (.py, zero-deps; or .yaml, needs pyyaml) then
-applies CLI overrides.
+Configurator -- load a config file, then apply CLI overrides.
 
-Usage:
-  python training/train.py config/train_delphi2m_mask_dedup.py                      # wandb disabled
-  python training/train.py config/train_delphi2m_mask_dedup.py --wandb online       # enable wandb
-  python training/train.py config/train_delphi2m_mask_dedup.py --max_iters 5000     # override a param
-  python training/train.py config/train_delphi2m_mask_dedup.py --wandb online --batch_size 64
+Exec'd by train.py into its own globals, so a config file is just plain `key = value`
+assignments and any name it sets must already exist as a default in train.py (an unknown key
+is a hard error, not a silent no-op -- that is how a typo'd hyperparameter used to be ignored).
+
+  python train.py configs/radc_base.py
+  python train.py configs/radc_base.py --wandb online
+  python train.py configs/radc_base.py --max_iters 4000
+  python train.py configs/radc_base.py --wandb online --batch_size 64
+
+.py configs are exec'd (zero dependencies); .yaml/.yml need pyyaml and are imported lazily.
 """
 
 import sys
