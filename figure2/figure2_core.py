@@ -80,8 +80,17 @@ NEG = -1e4 + 1                                 # sampled trajectories are padded
 # fixed to count only non-ignored tokens.
 _VISIT_IGNORE = set(V.IGNORE_TOKENS) | {V.PADDING}
 
-OUT_DIR = os.path.join(HERE, "results", "figure2")
-CACHE_DIR = os.path.join(OUT_DIR, "_cache")
+# Output root. FIG2_TAG separates runs that would otherwise overwrite each other: every panel
+# filename is fixed (fig2a_matched.png ...), so scoring three checkpoints into one directory
+# silently leaves only the last one. Default "" keeps the delivered v3 paths unchanged.
+#
+# The CACHE is deliberately NOT tagged. It is keyed on the checkpoint's md5 plus dataset, split
+# and n_mc, so three checkpoints cannot collide there, and sharing it means re-plotting one run
+# never invalidates another's Monte-Carlo pass.
+FIG2_TAG = os.environ.get("FIG2_TAG", "")
+OUT_DIR = os.path.join(HERE, "results", "figure2", FIG2_TAG) if FIG2_TAG else \
+    os.path.join(HERE, "results", "figure2")
+CACHE_DIR = os.path.join(HERE, "results", "figure2", "_cache")
 
 
 # --------------------------------------------------------------------------- small helpers
@@ -197,19 +206,49 @@ TRAJ_CLASSES = S.TRAJ_CLASSES
 _G = {}
 
 
-def _engine(ckpt, dataset, device):
-    """Load the checkpoint against the dataset it was trained on.
+def _engine(ckpt, dataset, device, configure=True):
+    """Load the checkpoint against the dataset it was trained on, and bind the figure to it.
 
     `strict_vocab` is left on deliberately: engine.load compares the checkpoint's recorded
     labels.csv fingerprint against the one in data_dir, which is the check that caught eval
-    scripts silently scoring a v3 checkpoint against v1 tokens."""
-    return EN.load(os.path.join(HERE, ckpt), data_dir=os.path.join(HERE, "data", dataset),
-                   device=device)
+    scripts silently scoring a v3 checkpoint against v1 tokens.
+
+    CROSS-TOKENIZATION RUNS. A checkpoint from an older build (out-radc-testckpt is 50 tokens
+    against the live 56) is loaded by naming the table it was trained on -- its own build's
+    labels.csv -- and every domain fact in the figure is then resolved from THAT table by name.
+    The point is comparability: the v1 build binned MMSE into exactly the four Folstein levels,
+    so a v1 and a v3 checkpoint land on the same four-stage state space and their panels can be
+    read side by side. Without it, scoring v1 would apply v3 ids to a model that never saw them
+    -- every id above 22 moved when the `Dementia at entry` block was inserted.
+    """
+    data_dir = os.path.join(HERE, "data", dataset)
+    lp = os.path.join(data_dir, "labels.csv")
+    import torch as _t
+    n_ck = int(_t.load(os.path.join(HERE, ckpt), map_location="cpu",
+                       weights_only=False)["model_args"]["vocab_size"])
+    eng = EN.load(os.path.join(HERE, ckpt), data_dir=data_dir, device=device,
+                  vocab_labels=(lp if n_ck != V.VOCAB_SIZE else None))
+    if configure:
+        _bind(eng)
+    return eng
+
+
+def _bind(eng):
+    """Point radc_states / perdomain at this engine's token table, and refresh the aliases."""
+    global STATE_NAMES, ALL_NAMES, DEATH, AD_DX, GRID_TOKENS, NSTATE, NSLOT
+    global DEATH_IDX, AD_IDX, _VISIT_IGNORE
+    S.configure(eng.labels)
+    PD.configure()
+    STATE_NAMES, ALL_NAMES = S.GRID_NAMES, S.ALL_NAMES
+    DEATH, AD_DX, GRID_TOKENS = S.DEATH, S.AD_DX, S.GRID_TOKENS
+    NSTATE, NSLOT, DEATH_IDX, AD_IDX = S.NSTATE, S.NSLOT, S.DEATH_IDX, S.AD_IDX
+    # from the CHECKPOINT's static block, not the live one: v1 has 21 statics, v3 has 24
+    _VISIT_IGNORE = set(eng.ignore_tokens) | {eng.res.PADDING}
 
 
 def _init_worker(ckpt, dataset, split, device, seed):
     torch.set_num_threads(1)
-    eng = _engine(ckpt, dataset, device)
+    eng = _engine(ckpt, dataset, device)      # also re-binds S / PD inside this worker
     data, p2i, _sub = eng.load_split(split)
     _G.update(eng=eng, data=data, p2i=p2i)
 
@@ -439,8 +478,7 @@ COHORT_SHORT_MIN_VISITS = 2
 
 
 def training_cohort_mask(dataset=DATASET, split=SPLIT, min_visits=COHORT_MIN_VISITS,
-                         short_min_visits=COHORT_SHORT_MIN_VISITS, device="cpu",
-                         ckpt=CKPT):
+                         short_min_visits=COHORT_SHORT_MIN_VISITS):
     """Boolean mask over the subject ROWS of `split`: True = inside train.py's training cohort.
 
     On this cohort the filter is far less selective than it was on NACC: `configs/radc_v3.py`
@@ -449,12 +487,19 @@ def training_cohort_mask(dataset=DATASET, split=SPLIT, min_visits=COHORT_MIN_VIS
     therefore a much smaller correction here than it was there -- but it is not zero, and the
     machinery is kept so the figure can still state which population it describes.
     """
-    from radc_delphi.batching import filter_cohort        # noqa: E402
-    eng = _engine(ckpt, dataset, device)
-    data, p2i, _sub = eng.load_split(split)
+    from radc_delphi.batching import filter_cohort, get_p2i    # noqa: E402
+    # NO MODEL, DELIBERATELY. This used to take a checkpoint so it could reuse _engine for
+    # load_split, and its `ckpt` default was the live v3 model -- so calling it with only
+    # (dataset, split), which is exactly what figure2_panels does, loaded the v3 checkpoint
+    # against a v1 dataset and tripped the fingerprint guard. The cohort rule is a property
+    # of the DATA; reading the .bin directly removes the dependency and the bug class with it.
+    d = os.path.join(HERE, "data", dataset)
+    data = np.fromfile(os.path.join(d, f"{split}.bin"), dtype=np.uint32).reshape(-1, 3)
+    p2i = get_p2i(data)
+    res = V.resolve_csv(os.path.join(d, "labels.csv"))
     kept = filter_cohort(data, p2i, min_visits, short_min_visits,
-                         stage_disk=V.STAGE_TOKENS_DISK,
-                         ignored_disk=tuple(t - 1 for t in V.IGNORE_TOKENS if t > 0))
+                         stage_disk=tuple(t - 1 for t in res.SCALES["MMSE"]),
+                         ignored_disk=tuple(t - 1 for t in res.IGNORE_TOKENS if t > 0))
     # filter_cohort returns the SURVIVING p2i rows; map them back to a boolean mask over the
     # original rows by their start offset, which is unique per subject.
     starts = {int(x) for x in np.asarray(kept)[:, 0]}

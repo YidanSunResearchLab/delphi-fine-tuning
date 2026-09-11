@@ -81,20 +81,57 @@ silently wrong: Death terminates the rollout, the No-event marker can never be s
 
 ## The panels, and what they say on this model
 
-**a — Transition-prediction accuracy.** Three cells. *a1* 5-year AUC per (baseline stage →
-reached stage), subject-level bootstrap CI, shown only where ≥30 events and ≥30 non-events exist.
-*a2* mean predicted risk vs the Aalen–Johansen cumulative incidence on the same at-risk cohort.
-*a3* predicted vs observed **time** to the first transition out of the baseline stage, among
-subjects who actually transitioned before dying.
+**a — Per-state prediction accuracy.** Three cells. *a1* 5-year AUC for REACHING each state,
+one number per state, subject bootstrap CI, shown only where ≥30 events and ≥30 non-events
+exist. At risk: subjects not already in that state at baseline (Death and AD cannot be present
+at baseline in this stream — prevalent AD is a STATIC, not an event — so everyone is at risk of
+the incident version). *a2* mean predicted risk vs the Aalen–Johansen cumulative incidence on
+the same at-risk cohort. *a3* predicted vs observed **time** to the first transition out of the
+baseline stage, among subjects who actually transitioned before dying.
 
-> **5 of 20 transition types clear the 30-event floor** (NACC: 13 of 20). Median AUC **0.627**.
-> `Mild→Normal` is the best row at **0.733** — the model's strongest cognitive call is a
-> *recovery*. `Normal→Mild` **0.560** [0.497, 0.615] and `Normal→Death` **0.553** [0.505, 0.606]
-> are barely above chance.
+> **WHY THIS IS NOT A TRANSITION GRID ANY MORE.** a1 used to report a (baseline stage → reached
+> state) grid: 20 cells of which 5 cleared the event floor. Two things were wrong with it as a
+> headline. Its row labels read as token adjacencies — "Mild→Death" looks like "the Death token
+> follows the Mild token", when the row actually meant *among subjects whose BASELINE stage was
+> Mild, reaching Death by any path within the horizon*. And splitting one question by where the
+> subject started turned a single adequately-powered number into three underpowered ones. The
+> stratified version is still computed (`compute_A_strat`) and written to
+> `fig2a_stratified_*_data.csv` and `metrics.json` under `per_transition_stratified`, because it
+> is the only place the figure says whether discrimination depends on the starting stage.
+
+| state | at risk | events | **AUC** | 95% CI | observed | predicted |
+|---|---|---|---|---|---|---|
+| Severe (MMSE <18) | 780 | 43 | **0.809** | [0.741, 0.873] | 0.060 | 0.026 |
+| AD diagnosis | 793 | 95 | **0.777** | [0.725, 0.826] | 0.128 | 0.089 |
+| Normal (back to ≥27) | 165 | 47 | **0.758** | [0.671, 0.838] | 0.296 | 0.275 |
+| Moderate (18–23) | 758 | 83 | **0.729** | [0.674, 0.786] | 0.117 | 0.064 |
+| Death | 793 | 176 | **0.607** | [0.561, 0.649] | 0.237 | **0.006** |
+| Mild (24–26) | 676 | 111 | **0.562** | [0.505, 0.622] | 0.173 | 0.104 |
+
+> Median 0.743. Every rate is UNDER-predicted (mean −0.074), and death by a factor of 40.
 >
-> **Death calibration is catastrophic and now quantified per transition:** `Normal→Death`
-> observed 0.185 vs predicted **0.0035** (53×), `Mild→Death` observed 0.371 vs predicted
-> **0.0115** (32×). This is the immortality failure, not a new finding, but a1/a2 localise it.
+> **`Mild` is the one row that fails, and the reason is measured rather than guessed.** Among
+> baseline-Normal subjects the observed 5-year rate of reaching 24–26 is 0.211 / 0.218 / 0.215 /
+> 0.120 for a baseline MMSE of 27 / 28 / 29 / 30 — i.e. someone sitting one point from the 26.5
+> boundary has the SAME risk as someone at 29, and only the ceiling (30) differs. Spearman
+> between baseline MMSE and the outcome is **−0.091**. The strongest feature available carries
+> almost no information about this endpoint, so an AUC of 0.56 is close to what is achievable,
+> not a failure to use signal. It is the same fact the σ measurement reports from the other
+> side: at 27.5 the measurement SD is 1.21 points, so "27 vs 29" is within noise.
+>
+> Two secondary contributors, both quantified. (i) The label is NON-MONOTONE: of baseline-Normal
+> subjects who ended up at Moderate or Severe, **52.6% were never observed in 24–26** — they are
+> true decliners (mean predicted 0.118 against 0.104 for non-decliners) labelled NEGATIVE for
+> this endpoint. Restricting to subjects whose decline stopped at Mild lifts the AUC 0.560 →
+> 0.605; using the monotone composite "reach Mild OR WORSE" gives 0.654. (ii) The model's output
+> is nearly constant: across four groups with wildly different true outcomes the predicted
+> Mild-risk spans only 0.089–0.141.
+>
+> A mechanism that was tested and REFUTED: death competition. `composite` requires the stage
+> emission to precede the sampled death, so an aggressively-dying model could mechanically
+> suppress cognitive endpoints in the frailest subjects. Removing the death term changes the
+> Mild AUC by **0.000** on both the delivered model and the short-recipe one, and the two risks
+> are positively (not negatively) correlated. Not the cause.
 >
 > **Timing: R² = −0.89, MAE 6.10 y, bias +5.28 y** — the model puts transitions five years too
 > late on average. Spearman 0.490, so the ORDER is partly right and the absolute time is not.

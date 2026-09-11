@@ -395,3 +395,90 @@ def check():
 
 
 check()
+
+# ---------------------------------------------------------------- resolving ANY label table
+# The module constants above describe the LIVE tokenization. `resolve` produces the same sets
+# for an arbitrary label table -- i.e. for a checkpoint from an older build, read out of that
+# build's labels.csv.
+#
+# WHY BY NAME AND NOT BY ID. Ids move: v1 had 50 tokens, v3 has 56, and the three
+# `Dementia at entry` levels were inserted in the MIDDLE, so every id above 22 shifted. The
+# NAMES did not move -- "Death", "Alzheimer's dementia diagnosis", "Hypertension, history" and
+# the scale prefixes are identical in both. Matching on name is therefore the only mapping that
+# survives a vocabulary change, and it is the reason the ported Figure 2 can put a v1 and a v3
+# checkpoint on the same axes.
+#
+# Every classification below is ASSERTED to be exhaustive over the non-static content tokens.
+# A renamed or newly added token fails loudly here rather than being silently dropped from the
+# repeatable set (which would make generate() assign probability zero to a legitimate recovery)
+# or from the ignore set (which would put an unconstrained logit column into a softmax).
+_SCALE_PREFIX = {"MMSE": "MMSE", "COG": "Global cognition", "BMI": "BMI"}
+
+
+class Resolved:
+    """Id sets for one label table. Attribute names mirror this module's constants."""
+
+    def __init__(self, labels):
+        self.NAMES = list(labels)
+        self.VOCAB_SIZE = len(self.NAMES)
+        self.ID = {n: i for i, n in enumerate(self.NAMES)}
+        need = ("Padding", "No event", "Death", "Alzheimer's dementia diagnosis")
+        missing = [n for n in need if n not in self.ID]
+        if missing:
+            raise ValueError(f"label table is missing {missing}; not a RADC tokenization")
+        self.PADDING = self.ID["Padding"]
+        self.NO_EVENT = self.ID["No event"]
+        self.DEATH = self.ID["Death"]
+        self.AD_DX = self.ID["Alzheimer's dementia diagnosis"]
+        self.ENDPOINT_IDS = (self.AD_DX, self.DEATH)
+        self.TERMINATION_TOKENS = (self.DEATH,)
+
+        # ordinal scales, in label order == low -> high on the measurement, which for the two
+        # cognitive scales means WORST FIRST (see SEVERITY_ORDER above)
+        self.SCALES = {}
+        for key, pre in _SCALE_PREFIX.items():
+            ids = tuple(i for i, n in enumerate(self.NAMES) if n.startswith(pre))
+            if ids:
+                self.SCALES[key] = ids
+        self.SEVERITY_ORDER = {k: v for k, v in self.SCALES.items() if k != "BMI"}
+        self.SCALE_OF = {t: k for k, ids in self.SCALES.items() for t in ids}
+
+        self.KEEP_FIRST_IDS = tuple(i for i, n in enumerate(self.NAMES)
+                                    if n.endswith(", history"))
+        self.ONSET_IDS = tuple(i for i, n in enumerate(self.NAMES)
+                               if n.startswith(("Stroke,", "Depression,")))
+        self.MED_IDS = tuple(i for i, n in enumerate(self.NAMES)
+                             if n.endswith((" started", " stopped")))
+        self.REPEATABLE_TOKENS = tuple(sorted(
+            [t for ids in self.SCALES.values() for t in ids]
+            + list(self.ONSET_IDS) + list(self.MED_IDS)))
+
+        # Statics are whatever is left. They are contiguous in every build, so derive the range
+        # rather than name them: the v1 block is 2..22 and the v3 block 2..25.
+        classified = (set(self.REPEATABLE_TOKENS) | set(self.KEEP_FIRST_IDS)
+                      | {self.PADDING, self.NO_EVENT, self.AD_DX, self.DEATH})
+        statics = sorted(set(range(self.VOCAB_SIZE)) - classified)
+        if statics != list(range(statics[0], statics[-1] + 1)):
+            raise ValueError(f"the unclassified tokens are not contiguous: {statics}. Either a "
+                             f"token was renamed out of one of the families above, or a new "
+                             f"family was added and this resolver has not been told about it.")
+        self.STATIC_FIRST, self.STATIC_LAST = statics[0], statics[-1]
+        self.STATIC_IDS = tuple(statics)
+        self.IGNORE_TOKENS = [self.PADDING] + list(statics)
+        self.DT_IGNORE_TOKENS = list(self.IGNORE_TOKENS) + [self.NO_EVENT]
+        # the partition must cover the table exactly
+        total = classified | set(statics)
+        assert total == set(range(self.VOCAB_SIZE)), (
+            f"resolver did not cover every token: {sorted(set(range(self.VOCAB_SIZE)) - total)}")
+
+
+def resolve(labels):
+    """`Resolved` for a label table (a list of names in id order, i.e. labels.csv's column)."""
+    return Resolved(labels)
+
+
+def resolve_csv(path):
+    """`Resolved` for a build's labels.csv."""
+    import pandas as _pd
+    return Resolved([str(x) for x in _pd.read_csv(path)["event_name"].tolist()])
+

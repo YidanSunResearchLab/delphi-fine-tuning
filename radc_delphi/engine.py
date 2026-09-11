@@ -48,19 +48,38 @@ def _fingerprint(path):
     return h.hexdigest()[:12]
 
 
-def load(ckpt_path, data_dir=None, device="cpu", strict_vocab=True):
+def load(ckpt_path, data_dir=None, device="cpu", strict_vocab=True, vocab_labels=None):
     """Load a checkpoint into an Engine, verifying it against the vocabulary it was trained on.
 
     `strict_vocab` compares the checkpoint's recorded labels.csv fingerprint against the one in
     `data_dir`. This is not paranoia: in the previous arm a checkpoint could be scored against
     a differently-sized vocabulary, load without error, and mis-index every clinical label.
+
+    `vocab_labels` is the OPT-IN for scoring a checkpoint from an older tokenization -- pass the
+    path to the labels.csv that checkpoint was trained against (normally `data_dir/labels.csv`).
+    The size check is then made against THAT table instead of radc_delphi.vocab, and the table
+    is carried on the returned Engine as `.labels` so callers can resolve names rather than
+    assuming the live module's ids.
+
+    It is deliberately an explicit argument and not a boolean. The default path still refuses a
+    size mismatch outright, because that refusal is what stopped a v1 checkpoint being scored
+    against v3 tokens and producing a complete, plausible, wrong table. A caller that really
+    means to cross tokenizations has to name the table it means.
     """
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     args = dict(ck["model_args"])
-    if args["vocab_size"] != V.VOCAB_SIZE:
+    labels = list(V.NAMES)
+    if vocab_labels is not None:
+        labels = [str(x) for x in pd.read_csv(vocab_labels)["event_name"].tolist()]
+        if args["vocab_size"] != len(labels):
+            raise RuntimeError(
+                f"checkpoint vocab_size {args['vocab_size']} != {len(labels)} rows in "
+                f"{vocab_labels}. That table is not the one this checkpoint was trained on.")
+    elif args["vocab_size"] != V.VOCAB_SIZE:
         raise RuntimeError(
             f"checkpoint vocab_size {args['vocab_size']} != radc_delphi.vocab's "
-            f"{V.VOCAB_SIZE}. This checkpoint belongs to a different tokenization.")
+            f"{V.VOCAB_SIZE}. This checkpoint belongs to a different tokenization. To score it "
+            f"against its OWN tokenization, pass vocab_labels=<that build>/labels.csv.")
     if strict_vocab and data_dir:
         lp = os.path.join(data_dir, "labels.csv")
         if os.path.exists(lp) and ck.get("vocab_sig"):
@@ -76,12 +95,12 @@ def load(ckpt_path, data_dir=None, device="cpu", strict_vocab=True):
     model.load_state_dict(sd)
     model.to(device).eval()
     return Engine(model, args, device, ckpt=ck, data_dir=data_dir,
-                  ckpt_path=ckpt_path, ckpt_sig=_fingerprint(ckpt_path))
+                  ckpt_path=ckpt_path, ckpt_sig=_fingerprint(ckpt_path), labels=labels)
 
 
 class Engine:
     def __init__(self, model, args, device, ckpt=None, data_dir=None, ckpt_path=None,
-                 ckpt_sig=None):
+                 ckpt_sig=None, labels=None):
         self.model = model
         self.args = args
         self.device = device
@@ -92,10 +111,22 @@ class Engine:
         # md5 of the checkpoint file. Every cached rollout is keyed on this: a cache hit
         # against a different set of weights is silent and produces plausible numbers.
         self.ckpt_sig = ckpt_sig
-        # tokens the model was trained to emit; everything else is an unconstrained column
+        # The token table THIS checkpoint was trained against. Defaults to the live module, but
+        # is the older build's labels.csv when load() was given vocab_labels.
+        self.labels = list(labels) if labels is not None else list(V.NAMES)
+        self.vocab_size = len(self.labels)
+        # Id sets for THIS checkpoint's token table, resolved by name. Everything below reads
+        # self.res rather than the module constants, so a checkpoint from an older build gets
+        # its own Death / AD / No-event / repeatable ids instead of the live ones -- which on a
+        # v1 model would point at BMI and the medication events.
+        self.res = V.resolve(self.labels)
+        # tokens the model was trained to emit; everything else is an unconstrained column.
+        # `ignore_tokens` comes off the CHECKPOINT, so an older model keeps its own static
+        # block rather than inheriting the live one (v1 had 21 statics, v3 has 24).
         ignore = set(int(t) for t in args.get("ignore_tokens", V.IGNORE_TOKENS))
-        self.content_ids = np.array([t for t in range(V.VOCAB_SIZE) if t not in ignore],
+        self.content_ids = np.array([t for t in range(self.vocab_size) if t not in ignore],
                                     dtype=np.int64)
+        self.ignore_tokens = sorted(ignore)
         # observed tokens-per-visit, so a simulated visit emits as many tokens as a real one
         self.visit_sizes = None
         if data_dir:
@@ -162,13 +193,13 @@ class Engine:
             max_new_tokens=max_new_tokens,
             max_age=until_age_years * DAYS_PER_YEAR,
             # Death is absorbing. Without this the simulated cohort is immortal.
-            termination_tokens=list(V.TERMINATION_TOKENS),
+            termination_tokens=list(self.res.TERMINATION_TOKENS),
             # No-event is a training target but must never be SAMPLED -- it is a synthetic
             # marker, not a clinical event, and it would otherwise dominate the draw.
-            extra_ignore=[V.NO_EVENT],
+            extra_ignore=[self.res.NO_EVENT],
             # Ordinal bins and the recurring onset/medication events may repeat; the
             # keep-first tokens may not.
-            repeatable_tokens=list(V.REPEATABLE_TOKENS),
+            repeatable_tokens=list(self.res.REPEATABLE_TOKENS),
             visit_sizes=self.visit_sizes if use_visit_sizes else None,
         )
         return gi.cpu().numpy(), ga.cpu().numpy()
@@ -191,8 +222,8 @@ class Engine:
                                until_age_years=(t0 / DAYS_PER_YEAR) + max(horizons) + 1)
         out = {}
         big = 1e18
-        ad_at = np.where((gi == V.AD_DX) & (ga > t0), ga, big).min(1)
-        death_at = np.where((gi == V.DEATH) & (ga > t0), ga, big).min(1)
+        ad_at = np.where((gi == self.res.AD_DX) & (ga > t0), ga, big).min(1)
+        death_at = np.where((gi == self.res.DEATH) & (ga > t0), ga, big).min(1)
         for h, hd in zip(horizons, horizon_days):
             # ad_at <= death_at, not <: generate() draws a whole visit at one age, so an AD
             # token and a Death token land on the same simulated day in 1.5% of draws. The
@@ -280,7 +311,7 @@ class Engine:
         the val split alone and unusable as a per-draw python loop.
         """
         ids = np.asarray(V.SCALES[scale])
-        lut = np.full(V.VOCAB_SIZE, -1, dtype=np.int64)
+        lut = np.full(max(V.VOCAB_SIZE, int(max(scale_ids)) + 1), -1, dtype=np.int64)
         lut[ids] = np.arange(len(ids))
         real = np.isin(sim_tokens, ids) & (sim_ages > PAD_AGE + 1)
         bins = lut[sim_tokens]

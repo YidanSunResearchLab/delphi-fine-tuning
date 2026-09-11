@@ -2,8 +2,10 @@
 figure2_panels.py -- **Figure 2** of the AD-progression paper, built panel-by-panel and then
 assembled.
 
-  Panel a  Transition-prediction accuracy .... AUC per transition type + observed vs predicted
-                                               transition probability side by side
+  Panel a  Per-state prediction accuracy ..... AUC for REACHING each state (one number per
+                                               state, pooled over the baseline state) +
+                                               observed vs predicted rate side by side, +
+                                               predicted vs observed transition TIME
   Panel b  Timing accuracy by interval ....... error in predicted event time binned by how far
                                                ahead the event was, + discrimination vs horizon
   Panel c  Per-individual trajectories ....... observed vs predicted stage-at-age, Jaccard index
@@ -65,7 +67,7 @@ TRAJ_COLORS = {
     "Progressed to AD": "#D55E00", "Died, no progression": "#999999",
 }
 # Keyed off radc_states.ENDPOINTS so a label change cannot leave a panel uncoloured.
-EP_COLORS = dict(zip([lab for lab, _s, _p in S.ENDPOINTS],
+EP_COLORS = dict(zip([lab for lab, _s, _p in S.endpoints()],
                      ["#56B4E9", "#CC79A7", "#D55E00"]))
 TIME_BINS = [(0, 2), (2, 5), (5, 10), (10, 20)]
 TIME_BIN_LABELS = ["0–2 y", "2–5 y", "5–10 y", ">10 y"]
@@ -120,43 +122,50 @@ def _save(fig, stem, data=None):
 
 
 # =========================================================================== PANEL A
-def transition_types():
-    """The (from -> to) transitions worth evaluating, ordered by origin severity then target.
+def state_targets():
+    """The slots panel a scores, in reading order: the stages worst-last, then the endpoints.
 
-    `to` == F2.DEATH_IDX is Death.  A subject is AT RISK for from->to if their baseline stage
-    is `from`; reversions (e.g. Mild -> Normal) are included because the data contains them --
-    the TV gate was chosen over hysteresis precisely so that recoveries survive tokenization.
+    This REPLACED a (baseline stage -> reached state) grid, and the reason is worth recording.
+    That grid had 20 cells of which 5 cleared the event floor, and its row labels ("Mild→Death")
+    read as a token adjacency when the row actually meant "among subjects whose BASELINE stage
+    was Mild, reaching Death by any path within the horizon". Splitting one question by where
+    the subject started also turned a single adequately-powered number into three underpowered
+    ones. The stratified version is still computed -- see compute_A_strat -- and written to the
+    source CSV and metrics.json, so nothing is lost; it is just not the headline.
+    """
+    return list(range(S.NSTAGE)) + [F2.DEATH_IDX, F2.AD_IDX]
 
-    NOTE ON SEMANTICS: "from -> to" means *reaching* `to` within the horizon starting from a
-    baseline stage of `from` -- by ANY path, so Normal->Severe includes subjects who passed
-    through Mild first. The strictly one-step (next distinct state) version is the supplementary
-    transition matrix, not this panel."""
-    out = []
-    for f in range(S.NSTAGE):
-        for t in list(range(S.NSTAGE)) + [F2.DEATH_IDX]:
-            if t == f:
-                continue
-            out.append((f, t))
-    return out
+
+def _slot_colour(slot):
+    if slot < S.NSTAGE:
+        return STATE_COLORS[slot]
+    return ps.OUTCOME_COLORS["Death" if slot == F2.DEATH_IDX else "AD diagnosis"]
 
 
 def compute_A(cache, horizon=H):
-    """Per-transition-type discrimination and calibration.
+    """Per-STATE discrimination and calibration, pooled over the baseline state.
 
-    DISCRIMINATION (AUC) uses the censoring/competing-risk aware binary label, i.e. patients whose
-    status at `horizon` is unknown (censored early, no event) are dropped.
-    CALIBRATION compares the model's mean predicted risk over the WHOLE at-risk cohort against the
-    Aalen-Johansen cumulative incidence on that same cohort -- NOT the naive event proportion,
-    which is biased upwards because it silently drops the early-censored (mostly event-free)
-    patients. The naive proportion is still recorded in the source CSV for reference.
+    One question per row: among subjects NOT already in this state at baseline, does the model
+    rank those who reach it within `horizon` years above those who do not?
+
+    AT RISK. For a stage, subjects already in it at baseline are excluded -- they would be
+    positive by construction. Death and the AD diagnosis cannot be present at baseline in this
+    stream (prevalent AD is a STATIC, not an event), so everyone is at risk of the incident
+    version.
+
+    DISCRIMINATION (AUC) uses the censoring/competing-risk aware binary label, i.e. subjects
+    whose status at `horizon` is unknown (censored early, no event) are dropped.
+    CALIBRATION compares the model's mean predicted risk over the WHOLE at-risk cohort against
+    the Aalen-Johansen cumulative incidence on that same cohort -- NOT the naive event
+    proportion, which is biased upwards because it silently drops the early-censored (mostly
+    event-free) subjects. The naive proportion is still recorded in the source CSV.
     """
     df, grids = cache["df"], cache["grids"]
     b = df["baseline_state"].to_numpy()
     rows = []
-    eps = {t: F2.composite(df, grids, [t]) for t in range(F2.NSTATE)}
-    for (f, t) in transition_types():
-        ep = eps[t]
-        at_risk = (b == f)
+    for slot in state_targets():
+        ep = F2.composite(df, grids, [slot])
+        at_risk = (b != slot) if slot < S.NSTAGE else np.ones(len(df), bool)
         y_all = F2.labels_at_h(ep, horizon)
         s_all = ep["risk"][horizon]
         m = at_risk & (y_all >= 0) & np.isfinite(s_all)
@@ -167,13 +176,47 @@ def compute_A(cache, horizon=H):
         auc, lo, hi = boot_auc(y, s)
         tt, et = F2.cr_times(ep, at_risk)
         cif = F2.aalen_johansen(tt, et, horizon)
-        pred = float(np.nanmean(s_all[at_risk]))
         rows.append(dict(
-            frm=F2.STATE_NAMES[f], to=F2.STATE_NAMES[t],
-            label=f"{F2.STATE_NAMES[f]}→{F2.STATE_NAMES[t]}",
-            from_idx=f, to_idx=t, horizon=horizon, n_at_risk=int(at_risk.sum()),
-            n_scored=int(m.sum()), n_events=n_pos, auc=auc, auc_lo=lo, auc_hi=hi,
-            obs_cif=cif, pred_rate=pred, obs_naive_rate=float(y.mean())))
+            label=F2.ALL_NAMES[slot], slot=int(slot), horizon=horizon,
+            n_at_risk=int(at_risk.sum()), n_scored=int(m.sum()), n_events=n_pos,
+            auc=auc, auc_lo=lo, auc_hi=hi, obs_cif=cif,
+            pred_rate=float(np.nanmean(s_all[at_risk])), obs_naive_rate=float(y.mean())))
+    return pd.DataFrame(rows)
+
+
+def compute_A_strat(cache, horizon=H):
+    """The old (baseline stage -> reached state) grid, kept for the record.
+
+    Not plotted any more (see state_targets), but still written out: it is the only place the
+    figure reports whether discrimination depends on where the subject started, and dropping a
+    measurement because it stopped being the headline would be a loss.
+    """
+    df, grids = cache["df"], cache["grids"]
+    b = df["baseline_state"].to_numpy()
+    rows = []
+    eps = {t: F2.composite(df, grids, [t]) for t in range(F2.NSTATE)}
+    for f in range(S.NSTAGE):
+        for t in list(range(S.NSTAGE)) + [F2.DEATH_IDX]:
+            if t == f:
+                continue
+            ep = eps[t]
+            at_risk = (b == f)
+            y_all = F2.labels_at_h(ep, horizon)
+            s_all = ep["risk"][horizon]
+            m = at_risk & (y_all >= 0) & np.isfinite(s_all)
+            y, s = y_all[m].astype(int), s_all[m]
+            n_pos = int(y.sum())
+            if n_pos < MIN_POS or len(y) - n_pos < MIN_POS:
+                continue
+            auc, lo, hi = boot_auc(y, s)
+            tt, et = F2.cr_times(ep, at_risk)
+            rows.append(dict(
+                frm=F2.STATE_NAMES[f], to=F2.STATE_NAMES[t],
+                label=f"{F2.STATE_NAMES[f]}→{F2.STATE_NAMES[t]}",
+                from_idx=f, to_idx=t, horizon=horizon, n_at_risk=int(at_risk.sum()),
+                n_scored=int(m.sum()), n_events=n_pos, auc=auc, auc_lo=lo, auc_hi=hi,
+                obs_cif=F2.aalen_johansen(tt, et, horizon),
+                pred_rate=float(np.nanmean(s_all[at_risk])), obs_naive_rate=float(y.mean())))
     return pd.DataFrame(rows)
 
 
@@ -270,6 +313,9 @@ def _panel_A_time(ax, AT):
 def panel_A(fig, spec, cache, letter="a", horizon=H):
     if "A" not in cache:
         cache["A"] = compute_A(cache, horizon)
+    if "A_strat" not in cache:
+        cache["A_strat"] = compute_A_strat(cache, horizon)
+        ps.save_data(cache["A_strat"], OUT, "fig2a_stratified" + SUFFIX)
     if "A_time" not in cache:
         cache["A_time"] = compute_A_time(cache)
         ps.save_data(cache["A_time"]["tab"], OUT, "fig2a_transition_time" + SUFFIX)  # per-patient
@@ -282,15 +328,16 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
     _panel_A_time(ax3, AT)
     if tab.empty:
         for ax in (ax1, ax2):
-            ax.text(0.5, 0.5, f"no transition type reaches {MIN_POS} events at {horizon} y",
+            ax.text(0.5, 0.5, f"no state reaches {MIN_POS} events at {horizon} y",
                     ha="center", va="center", fontsize=10, color="#D55E00")
             ax.set_axis_off()
-        return dict(horizon=horizon, n_transition_types=0, note="no transition type met MIN_POS",
+        return dict(horizon=horizon, n_states=0, note=f"no state met MIN_POS={MIN_POS}",
                     transition_time=AT["stats"]), tab
 
-    t = tab.sort_values(["from_idx", "to_idx"], ascending=[False, False]).reset_index(drop=True)
+    # barh draws bottom-up, so reverse to read Normal -> Severe -> Death -> AD top-down
+    t = tab.sort_values("slot", ascending=False).reset_index(drop=True)
     ypos = np.arange(len(t))
-    colors = [STATE_COLORS[i] for i in t["from_idx"]]
+    colors = [_slot_colour(i) for i in t["slot"]]
 
     # ---- a1: discrimination
     x0 = min(0.45, np.floor(float(np.nanmin(t["auc_lo"])) * 20) / 20)
@@ -302,9 +349,9 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
     ax1.set_yticklabels([f"{r.label}  (n={r.n_events})" for r in t.itertuples()], fontsize=8.5)
     ax1.set_xlim(x0, 1.06)
     ax1.set_xticks(np.arange(np.ceil(x0 * 10) / 10, 1.001, 0.1))
-    ax1.set_xlabel(f"AUC for reaching the target state within {horizon} y")
-    # the "any path" semantics live in transition_types()'s docstring and the README, not the title
-    ax1.set_title("Discrimination per transition type", fontsize=10.5)
+    ax1.set_xlabel(f"AUC for reaching this state within {horizon} y")
+    ax1.set_title("Discrimination per state\n(at risk: not already in it at baseline)",
+                  fontsize=10.5)
     ax1.grid(axis="y", alpha=0)
     for i, r in enumerate(t.itertuples()):
         ax1.text(1.055, i, f"{r.auc:.2f}", va="center", ha="right", fontsize=8)
@@ -317,9 +364,9 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
     ax2.barh(ypos - hgt / 2, t["pred_rate"], height=hgt, color=ps.OUTCOME_COLORS["stage"],
              edgecolor="white", label="predicted (Monte-Carlo)")
     ax2.set_yticks(ypos); ax2.set_yticklabels(t["label"], fontsize=8.5)
-    ax2.set_xlabel(f"P(transition within {horizon} y)")
+    ax2.set_xlabel(f"P(reach this state within {horizon} y)")
     cal = float(np.mean(t["pred_rate"] - t["obs_cif"]))
-    ax2.set_title(f"Observed vs predicted transition rate\nmean predicted − observed = {cal:+.3f}",
+    ax2.set_title(f"Observed vs predicted rate\nmean predicted − observed = {cal:+.3f}",
                   fontsize=10.5)
     ax2.grid(axis="y", alpha=0)
     ax2.legend(fontsize=7.5, loc="lower right", frameon=True, framealpha=0.9)
@@ -328,13 +375,23 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
 
     panel_letter(ax1, letter)
     med = float(np.nanmedian(t["auc"]))
-    metrics = dict(horizon=horizon, n_transition_types=int(len(t)), median_auc=round(med, 4),
+    st = cache.get("A_strat")
+    metrics = dict(horizon=horizon, n_states=int(len(t)), median_auc=round(med, 4),
                    mean_calibration_error=round(cal, 4),
-                   per_transition={r.label: dict(n_at_risk=int(r.n_at_risk), n_events=int(r.n_events),
-                                                 auc=round(r.auc, 4), ci=[round(r.auc_lo, 4), round(r.auc_hi, 4)],
-                                                 observed_cif=round(r.obs_cif, 4),
-                                                 predicted=round(r.pred_rate, 4))
-                                    for r in t.itertuples()},
+                   per_state={r.label: dict(n_at_risk=int(r.n_at_risk), n_events=int(r.n_events),
+                                            auc=round(r.auc, 4),
+                                            ci=[round(r.auc_lo, 4), round(r.auc_hi, 4)],
+                                            observed_cif=round(r.obs_cif, 4),
+                                            predicted=round(r.pred_rate, 4))
+                              for r in t.itertuples()},
+                   # kept, not plotted: does discrimination depend on where the subject started?
+                   per_transition_stratified=(
+                       {r.label: dict(n_at_risk=int(r.n_at_risk), n_events=int(r.n_events),
+                                      auc=round(r.auc, 4),
+                                      ci=[round(r.auc_lo, 4), round(r.auc_hi, 4)],
+                                      observed_cif=round(r.obs_cif, 4),
+                                      predicted=round(r.pred_rate, 4))
+                        for r in st.itertuples()} if st is not None and not st.empty else {}),
                    transition_time={k: (round(v, 4) if isinstance(v, float) else v)
                                     for k, v in AT["stats"].items()})
     return metrics, t
@@ -349,7 +406,7 @@ def endpoints_B(df, grids):
         # endpoint because RADC has a real incident diagnosis where NACC had only a stage.
         *[(lab, F2.composite(df, grids, slots),
            np.asarray([bool(pred(x)) for x in b]))
-          for lab, slots, pred in S.ENDPOINTS],
+          for lab, slots, pred in S.endpoints()],
     ]
 
 
@@ -911,7 +968,7 @@ def supp_transition_matrices(cache):
 
 # =========================================================================== drivers
 #                fn        standalone title                       figsize      bottom margin
-PANELS = {"a": (panel_A, "Transition-prediction accuracy",      (18.5, 5.0), 0.13),
+PANELS = {"a": (panel_A, "Per-state prediction accuracy",       (18.5, 5.0), 0.13),
           "b": (panel_B, "Timing accuracy by interval",         (12.5, 5.0), 0.13),
           "c": (panel_C, "Per-individual trajectory comparison", (14.5, 9.6), 0.07),
           "d": (panel_D, "Patient-embedding structure — baseline visit only", (10.5, 6.2), 0.26)}

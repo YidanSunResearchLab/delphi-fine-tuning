@@ -66,75 +66,134 @@ STAGE_MODE = "folstein4"
 # --------------------------------------------------------------------------- the staging
 # Severity INCREASES with index, matching NACCUDSD's 0=Normal .. 3=Dementia. Note this is the
 # REVERSE of vocab.SEVERITY_ORDER["MMSE"], which is worst-first; anything that needs "worsened
-# by >= 1" on the raw token ids must keep using vocab, not this.
-_FOLSTEIN = [
+# by >= 1" on the raw token ids must keep using the resolved SEVERITY_ORDER, not this.
+#
+# ONE SPEC PER TOKENIZATION, SELECTED BY WHICH MMSE NAMES THE TABLE ACTUALLY HAS. The point of
+# this is cross-vocabulary comparability: the v1 build binned MMSE into exactly four levels and
+# those four levels ARE the Folstein stages, one to one, so a v1 checkpoint and a v3 checkpoint
+# land on the SAME four-stage state space and their Figure 2s can be read side by side. Without
+# this, scoring a v1 checkpoint would mean applying v3's ids to a model that never saw them --
+# the ids above 22 all shifted when the three `Dementia at entry` levels were inserted.
+_FOLSTEIN_V3 = [
     ("Normal",   ("MMSE 27", "MMSE 28", "MMSE 29", "MMSE 30")),   # >= 27
     ("Mild",     ("MMSE 24-26",)),                                # 24 - 26
     ("Moderate", ("MMSE 18-23",)),                                # 18 - 23
     ("Severe",   ("MMSE <18",)),                                  # < 18
 ]
-_MMSE7 = [(V.NAMES[t], (V.NAMES[t],)) for t in reversed(V.SCALES["MMSE"])]
+_FOLSTEIN_V1 = [
+    ("Normal",   ("MMSE 27-30",)),
+    ("Mild",     ("MMSE 24-26",)),
+    ("Moderate", ("MMSE 18-23",)),
+    ("Severe",   ("MMSE 0-17",)),
+]
+_SPECS = (_FOLSTEIN_V3, _FOLSTEIN_V1)
 
 
-def _stage_spec(mode=None):
+def _stage_spec(res, mode=None):
     m = mode or STAGE_MODE
-    if m == "folstein4":
-        return _FOLSTEIN
     if m == "mmse7":
-        return _MMSE7
-    raise ValueError(f"unknown STAGE_MODE {m!r}")
+        # every emitted level its own stage, worst last
+        return [(res.NAMES[t], (res.NAMES[t],)) for t in reversed(res.SCALES["MMSE"])]
+    if m != "folstein4":
+        raise ValueError(f"unknown STAGE_MODE {m!r}")
+    have = set(res.NAMES)
+    for spec in _SPECS:
+        if all(n in have for _lab, ids in spec for n in ids):
+            return spec
+    raise ValueError(
+        "no Folstein stage spec matches this label table's MMSE levels: "
+        f"{[res.NAMES[t] for t in res.SCALES['MMSE']]}. Add a spec rather than letting the "
+        "figure fall back to something that silently means a different staging.")
 
 
-_SPEC = _stage_spec()
-STAGE_NAMES = [n for n, _ in _SPEC]
-STAGE_GROUPS = [tuple(V.ID[x] for x in ids) for _, ids in _SPEC]   # model-space token ids
-NSTAGE = len(STAGE_NAMES)
+def configure(labels=None, mode=None):
+    """Bind this module to a token table. Call once per checkpoint, before anything else.
 
-DEATH = V.DEATH
-AD_DX = V.AD_DX
+    `labels` is a list of names in id order (a build's labels.csv column, or vocab.NAMES).
+    Everything this module exports is rebound; the module-level names are kept so the ported
+    panels read exactly as they did against NACC.
+    """
+    global RES, STAGE_NAMES, STAGE_GROUPS, NSTAGE, DEATH, AD_DX, DEATH_IDX, AD_IDX
+    global ALL_NAMES, NSLOT, GRID_SLOTS, GRID_NAMES, NSTATE
+    global STAGE_TOKENS, GRID_TOKENS, ALL_TOKENS, TOK2SLOT
+    global SCALE_IDS, SCALE_DIRECTED, EVENT_GROUPS, MODE
 
-# Indices into ALL_NAMES. 0..NSTAGE-1 are stages; Death is the absorbing state that closes the
-# state space; AD is an EVENT carried alongside, not a state (see the docstring).
-DEATH_IDX = NSTAGE
-AD_IDX = NSTAGE + 1
-ALL_NAMES = STAGE_NAMES + ["Death", "AD diagnosis"]
-NSLOT = len(ALL_NAMES)
+    RES = V.resolve(list(labels) if labels is not None else V.NAMES)
+    MODE = mode or STAGE_MODE
+    spec = _stage_spec(RES, MODE)
+    STAGE_NAMES = [n for n, _ in spec]
+    STAGE_GROUPS = [tuple(RES.ID[x] for x in ids) for _, ids in spec]
+    NSTAGE = len(STAGE_NAMES)
 
-# The slots that form the state space panels a and c walk over: stages + Death.
-GRID_SLOTS = list(range(NSTAGE)) + [DEATH_IDX]
-GRID_NAMES = STAGE_NAMES + ["Death"]
-NSTATE = len(GRID_SLOTS)
+    DEATH, AD_DX = RES.DEATH, RES.AD_DX
+    DEATH_IDX, AD_IDX = NSTAGE, NSTAGE + 1
+    ALL_NAMES = STAGE_NAMES + ["Death", "AD diagnosis"]
+    NSLOT = len(ALL_NAMES)
+    GRID_SLOTS = list(range(NSTAGE)) + [DEATH_IDX]
+    GRID_NAMES = STAGE_NAMES + ["Death"]
+    NSTATE = len(GRID_SLOTS)
 
-# Every token that can move a subject between grid states, and its slot.
-STAGE_TOKENS = tuple(t for g in STAGE_GROUPS for t in g)
-GRID_TOKENS = STAGE_TOKENS + (DEATH,)
-ALL_TOKENS = GRID_TOKENS + (AD_DX,)
+    STAGE_TOKENS = tuple(t for g in STAGE_GROUPS for t in g)
+    GRID_TOKENS = STAGE_TOKENS + (DEATH,)
+    ALL_TOKENS = GRID_TOKENS + (AD_DX,)
 
-# token id -> slot index, -1 for everything else. A lookup table rather than a .index() call:
-# the MC batch is (n_mc, T) and the per-element python call showed up in the profile.
-TOK2SLOT = np.full(V.VOCAB_SIZE, -1, dtype=np.int64)
-for _i, _g in enumerate(STAGE_GROUPS):
-    for _t in _g:
-        TOK2SLOT[_t] = _i
-TOK2SLOT[DEATH] = DEATH_IDX
-TOK2SLOT[AD_DX] = AD_IDX
+    # token id -> slot index, -1 for everything else. A lookup table rather than a .index()
+    # call: the MC batch is (n_mc, T) and the per-element python call showed up in the profile.
+    TOK2SLOT = np.full(RES.VOCAB_SIZE, -1, dtype=np.int64)
+    for i, g in enumerate(STAGE_GROUPS):
+        for t in g:
+            TOK2SLOT[t] = i
+    TOK2SLOT[DEATH] = DEATH_IDX
+    TOK2SLOT[AD_DX] = AD_IDX
+
+    SCALE_IDS = {k: tuple(v) for k, v in RES.SCALES.items()}
+    SCALE_DIRECTED = {k: (k in RES.SEVERITY_ORDER) for k in SCALE_IDS}
+    EVENT_GROUPS = _event_groups(RES)
+    check()
+    return RES
+
+
+def _event_groups(res):
+    """The discrete-event outcomes perdomain scores: (label, token ids, recurring?).
+
+    Derived from the resolved families rather than typed out, so a vocabulary change cannot
+    leave an outcome silently unscored -- perdomain's coverage is asserted in the test suite.
+    The graded onset families are paired up ("Stroke, probable" + "Stroke, possible" -> one
+    "Stroke onset" outcome) because a single grade is not the clinical question.
+    """
+    out = []
+    for t in res.KEEP_FIRST_IDS:
+        out.append((res.NAMES[t].replace(", history", ""), (t,), False))
+    for fam in ("Stroke", "Depression"):
+        ids = tuple(t for t in res.ONSET_IDS if res.NAMES[t].startswith(fam + ","))
+        if ids:
+            out.append((f"{fam} onset", ids, True))
+    for t in res.MED_IDS:
+        out.append((res.NAMES[t], (t,), True))
+    return out
+
+
+ORDINAL_SCALES = ("MMSE", "COG", "BMI")
 
 
 def slot_of(tokens):
     """Vectorised token -> slot index (-1 where the token is not a state or AD)."""
     t = np.asarray(tokens)
-    return np.where((t >= 0) & (t < V.VOCAB_SIZE), TOK2SLOT[np.clip(t, 0, V.VOCAB_SIZE - 1)], -1)
+    n = RES.VOCAB_SIZE
+    return np.where((t >= 0) & (t < n), TOK2SLOT[np.clip(t, 0, n - 1)], -1)
 
 
 # --------------------------------------------------------------------------- endpoints
 # Panel b's three endpoints, mirroring NACC's "Reach >=MCI / Dementia / Death":
 #   the cognitive threshold, the diagnosis, and death.
 # Each entry is (label, slots to reach, at-risk predicate on the baseline stage).
-ENDPOINTS = [
-    ("Reach ≥Mild (MMSE ≤26)", list(range(1, NSTAGE)), lambda b: b <= 0),
-    ("AD diagnosis", [AD_IDX], lambda b: True),
-    ("Death", [DEATH_IDX], lambda b: True),
-]
+def endpoints():
+    return [
+        ("Reach ≥Mild (MMSE ≤26)", list(range(1, NSTAGE)), lambda b: b <= 0),
+        ("AD diagnosis", [AD_IDX], lambda b: True),
+        ("Death", [DEATH_IDX], lambda b: True),
+    ]
+
 
 # --------------------------------------------------------------------------- trajectory class
 TRAJ_CLASSES = ["Stable", "Improved", "Progressed (stage)", "Progressed to AD",
@@ -166,53 +225,29 @@ def trajectory_class(base_stage, fp_obs, died, final_stage):
     return "Stable"
 
 
-# --------------------------------------------------------------------------- per-domain set
-# What perdomain.py scores: everything the model is trained to emit that is not a stage token,
-# not an endpoint and not a static. Grouped so the plot stays readable.
-#
-# The three ordinal scales are scored as "worsens by >= 1 bin", which needs a severity order;
-# BMI has none (both tails are adverse) so it is scored as "moves by >= 1 bin" instead and
-# labelled as such. That asymmetry is inherited from vocab.SEVERITY_ORDER, which deliberately
-# omits BMI.
-ORDINAL_SCALES = ("MMSE", "COG", "BMI")
-SCALE_IDS = {k: tuple(V.SCALES[k]) for k in ORDINAL_SCALES}
-SCALE_DIRECTED = {"MMSE": True, "COG": True, "BMI": False}       # True = "worsens" is defined
-
-EVENT_GROUPS = [
-    ("Hypertension", (V.ID["Hypertension, history"],), False),
-    ("Diabetes", (V.ID["Diabetes, history"],), False),
-    ("Claudication", (V.ID["Claudication, history"],), False),
-    ("Heart condition", (V.ID["Heart condition, history"],), False),
-    ("Stroke onset", (V.ID["Stroke, probable"], V.ID["Stroke, possible"]), True),
-    ("Depression onset", (V.ID["Depression, probable"], V.ID["Depression, possible"]), True),
-    ("Antihypertensive started", (V.ID["Antihypertensive started"],), True),
-    ("Antihypertensive stopped", (V.ID["Antihypertensive stopped"],), True),
-    ("Statin started", (V.ID["Statin started"],), True),
-    ("Statin stopped", (V.ID["Statin stopped"],), True),
-]
-
-
 def check():
-    """Invariants. Called by the test suite and by figure2_core on import."""
+    """Invariants. Called by configure() and by the test suite."""
     seen = set()
     for g in STAGE_GROUPS:
         assert g, "an empty stage group"
         for t in g:
-            assert t not in seen, f"token {t} ({V.NAMES[t]}) in two stages"
+            assert t not in seen, f"token {t} ({RES.NAMES[t]}) in two stages"
             seen.add(t)
-    assert seen == set(V.SCALES["MMSE"]), (
+    assert seen == set(RES.SCALES["MMSE"]), (
         "the stages must partition the MMSE levels exactly; missing "
-        f"{sorted(set(V.SCALES['MMSE']) - seen)}, extra {sorted(seen - set(V.SCALES['MMSE']))}")
+        f"{sorted(set(RES.SCALES['MMSE']) - seen)}, extra {sorted(seen - set(RES.SCALES['MMSE']))}")
     assert DEATH not in seen and AD_DX not in seen
     assert TOK2SLOT[DEATH] == DEATH_IDX and TOK2SLOT[AD_DX] == AD_IDX
     # every stage token must be one the model is actually trained to emit
     for t in STAGE_TOKENS + (DEATH, AD_DX):
-        assert t not in V.IGNORE_TOKENS and t != V.NO_EVENT, f"{V.NAMES[t]} is not a target"
-    # the endpoint slots must be real
-    for lab, slots, _p in ENDPOINTS:
+        assert t not in RES.IGNORE_TOKENS and t != RES.NO_EVENT, \
+            f"{RES.NAMES[t]} is not a target"
+    for lab, slots, _p in endpoints():
         for s in slots:
             assert 0 <= s < NSLOT, f"endpoint {lab} references slot {s}"
     return True
 
 
-check()
+# Bound to the LIVE tokenization at import so nothing that does not care has to call
+# configure(); figure2_core re-binds it to the checkpoint's own table.
+configure()

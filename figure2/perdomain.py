@@ -46,31 +46,37 @@ sampled futures and can be quoted side by side.
 """
 import numpy as np
 
-from radc_delphi import vocab as V
 from radc_delphi.engine import DAYS_PER_YEAR
 
 from . import radc_states as S
 
 D = DAYS_PER_YEAR
 NEG = -1e4 + 1
-DEATH = V.DEATH
 
 # ---------------------------------------------------------------- the outcome set
-SCALES = list(S.ORDINAL_SCALES)                 # ("MMSE", "COG", "BMI")
-SCALE_IDS = S.SCALE_IDS
-# True  -> a severity order exists, score "worsens by >= 1 bin"
-# False -> no severity order, score "moves by >= 1 bin either way"
-SCALE_DIRECTED = S.SCALE_DIRECTED
+# Rebound by configure(), because the ids depend on which tokenization the checkpoint under
+# study was trained against. The NAMES are stable across builds; only the ids move.
+SCALES = SCALE_IDS = SCALE_DIRECTED = EVENTS = EVENT_NAMES = ALL_OUTCOMES = QUESTION = None
 
-EVENTS = [(name, ids) for name, ids, _rec in S.EVENT_GROUPS]
-EVENT_NAMES = [n for n, _ in EVENTS]
 
-ALL_OUTCOMES = SCALES + EVENT_NAMES
+def configure():
+    """Rebind to whatever radc_states is currently configured for. Call after S.configure()."""
+    global SCALES, SCALE_IDS, SCALE_DIRECTED, EVENTS, EVENT_NAMES, ALL_OUTCOMES, QUESTION
+    SCALES = [k for k in S.ORDINAL_SCALES if k in S.SCALE_IDS]
+    SCALE_IDS = {k: S.SCALE_IDS[k] for k in SCALES}
+    # True  -> a severity order exists, score "worsens by >= 1 bin"
+    # False -> no severity order, score "moves by >= 1 bin either way"
+    SCALE_DIRECTED = {k: S.SCALE_DIRECTED[k] for k in SCALES}
+    EVENTS = [(name, ids) for name, ids, _rec in S.EVENT_GROUPS]
+    EVENT_NAMES = [n for n, _ in EVENTS]
+    ALL_OUTCOMES = SCALES + EVENT_NAMES
+    # Human-readable question per outcome, so the plot axis cannot silently mislabel BMI.
+    QUESTION = {**{k: ("worsens ≥ 1 bin" if SCALE_DIRECTED[k] else "moves ≥ 1 bin")
+                   for k in SCALES},
+                **{n: "first occurrence" for n in EVENT_NAMES}}
 
-# Human-readable question per outcome, so the plot axis cannot silently mislabel BMI.
-QUESTION = {**{k: ("worsens ≥ 1 bin" if SCALE_DIRECTED[k] else "moves ≥ 1 bin")
-               for k in SCALES},
-            **{n: "first occurrence" for n in EVENT_NAMES}}
+
+configure()
 
 
 def _bin_grid_one(ages, toks, ids, base_bin, grid_days):
