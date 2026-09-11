@@ -148,20 +148,64 @@ predictor (the cohort median time) — the honest baseline. The right cell is AU
 > 9.65 y against a naive 4.49 y; 2–5 y: 8.73 vs 2.26. The model is adding no timing information
 > anywhere on this cohort.
 
-**c — Per-individual trajectory comparison.** Observed vs MC-modal stage on a yearly grid, years
-1–15 after baseline (year 0 excluded: both series equal the baseline stage there by construction).
-A grid point counts only while the subject is under observation, or once they are known dead.
-Reported: Jaccard per subject, the same Jaccard for a **carry-baseline-forward** reference (the
-trivial "nothing changes" predictor), per-stage IoU, and agreement by year.
+**c — Per-individual trajectory comparison.** Observed vs predicted stage-at-age on a yearly
+grid, years 1–15 after baseline (year 0 excluded: both series equal the baseline stage there by
+construction). A grid point counts only while the subject is under observation, or once they are
+known dead. Scored against a **carry-baseline-forward** reference — the trivial "nothing changes"
+predictor that repeats the subject's baseline stage for 15 years, using no model, no age, nothing.
+It is not a weak reference: 79% of this cohort is Normal at baseline, so "nothing changes" is
+right 87% of the time at year 1.
 
-> **This is the headline result, and it is bad.** Model Jaccard **0.4244** [0.396, 0.453] against
-> carry-baseline-forward **0.4230** — a lift of **+0.0014**. On NACC the same comparison was
-> 0.618 vs 0.523, a lift of +0.095. The agreement-by-year series confirms it is not a
-> ceiling artefact: the two curves are within 0.006 of each other at every one of the 15 years.
+> **THIS PANEL USED TO REPORT A MODAL STATISTIC, AND THAT WAS A MEASUREMENT ERROR ON MY PART.**
+> The old version compared `argmax` over the predicted state distribution against the observed
+> stage, and reported model Jaccard 0.4244 against the reference's 0.4230 — a lift of +0.0014 —
+> which I wrote up as "the trajectory panel cannot distinguish the model from assume-nothing-
+> changes". That conclusion does not follow. `argmax` is a hard 0.5 threshold, and measured on
+> this model P(the subject has left their baseline stage) has mean 0.045 and **maximum 0.430** at
+> year 1: not one subject crosses 0.5, so the modal prediction is "unchanged" for everybody, and
+> the reference becomes identical to it by arithmetic. Only 5.6% of subjects cross 0.5 by year 5.
+> The modal statistic was measuring the model's CALIBRATION and reporting it as an absence of
+> information.
 >
-> **On this cohort the trajectory panel cannot distinguish the model from "assume nothing
-> changes."** Per-stage IoU: Normal 0.508, Mild 0.184, Moderate 0.072, Severe 0.055, Death
-> **0.001** (macro 0.164).
+> The same rollouts discriminate who actually changes at **AUC 0.72–0.88** at every year.
+
+The panel now scores the DISTRIBUTION, with two statistics and the distinction between them
+stated because it is the whole point:
+
+| | model | carry-baseline | who wins |
+|---|---|---|---|
+| **Brier** (strictly proper, lower better) | **0.766** [0.724, 0.808] | 1.007 | **model, by 24%** |
+| P(truth) (linear, NOT strictly proper) | 0.471 [0.447, 0.497] | **0.497** | reference |
+| modal Jaccard (0.5 threshold) | 0.424 [0.396, 0.453] | 0.423 | tie |
+
+`P(truth)` is the probability placed on the state that actually occurred. It reduces to plain
+accuracy for a deterministic forecaster, which makes it intuitive and directly comparable — but
+the linear score is **not strictly proper**: it is maximised by betting everything on the mode,
+which is exactly what the reference does. So the reference winning it is expected and means
+nothing. **Brier** (`sum_k (p_k − y_k)^2`, the standard multiclass form) is strictly proper: it
+cannot be improved by misreporting, and it charges the reference 2.0 every time its point mass
+lands on the wrong state. That is the number to quote.
+
+> The model is ahead on Brier **from year 1**, and the gap widens monotonically: 0.240 vs 0.261
+> at year 1, 0.675 vs 0.865 at year 5, 1.224 vs 1.715 at year 15. The per-subject histogram shows
+> the mechanism directly — the reference is bimodal at 0 and 2 (confidently right or confidently
+> wrong), the model is spread and almost never lands above 1.75.
+>
+> **BUT READ WHAT THE BRIER GAIN IS.** The model wins because it does not commit, not because it
+> is right. Hedging genuinely beats being confidently wrong, and that is worth 24% here — but the
+> underlying rates are still ~2.5× too low (predicted P(changed) 0.172 against an observed 0.432
+> at 5 y, 0.381 against 0.858 at 15 y, and the deficit COMPOUNDS rather than being a fixed delay).
+> A well-calibrated model would beat the reference on all three statistics. This one beats it on
+> the one that rewards uncertainty.
+
+Per-state IoU (still modal, which is inherent to IoU): Normal 0.508, Mild 0.184, Moderate 0.072,
+Severe 0.055, Death **0.001** (macro 0.164).
+
+The **alive-years-only** Jaccard (0.697, n=627) is reported alongside because once a subject dies
+every remaining grid year is "Death", so one correct death call can carry an otherwise poor
+cognitive trajectory. Four illustrative subjects are chosen deterministically — two the model
+matches, one it over-predicts, one it under-predicts. They illustrate; the aggregate statistics
+on the right are the evidence.
 
 **d — Patient-embedding structure.** UMAP of the final-block hidden state (post `ln_f`) for the
 baseline prompt, coloured by observed trajectory class. The headline number is **10-NN label
@@ -187,6 +231,10 @@ scatter.
 
 ## Caveats to carry with these numbers
 
+0. **The modal trajectory statistic was wrong and is fixed.** See panel c. Any earlier text of
+   mine claiming the model is indistinguishable from "nothing changes" was an artifact of
+   thresholding a forecast at 0.5 that never reaches 0.5; the real defect is calibration, and
+   the discrimination is AUC 0.72–0.88.
 1. **Death is not predictable from this stream and every survival-derived number is unusable.**
    Not a caveat about precision — the one-step P(Death next) has median 0.0003 against death being
    8.4% of observed post-85 tokens, and a2's 53× under-prediction is the same defect measured a

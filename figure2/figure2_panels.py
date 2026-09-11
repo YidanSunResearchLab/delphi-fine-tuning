@@ -529,6 +529,7 @@ def compute_C(cache, min_points=3):
     baseline state there by construction, so including it would inflate every score).  A grid
     point counts only while the patient is still under observation, or once they are known dead.
     """
+    from sklearn.metrics import roc_auc_score
     grids = cache["grids"]; df = cache["df"]
     gy = grids["grid_years"]; obs = grids["obs"]; known = grids["known"]; occ = grids["occ"]
     use = gy >= 1
@@ -537,8 +538,44 @@ def compute_C(cache, min_points=3):
     base = df["baseline_state"].to_numpy()[:, None].astype(np.int8)
     B = np.repeat(base, O.shape[1], axis=1)                           # carry-baseline-forward ref
 
+    # ---- PROPER SCORES, and why the modal comparison below is not enough --------------------
+    # `P` is argmax over the predicted state distribution -- a HARD threshold. Measured on this
+    # model, P(subject has left their baseline stage) has a mean of 0.045 at year 1 and a MAXIMUM
+    # of 0.430, so not one subject crosses 0.5 and the modal prediction is "unchanged" for
+    # everybody. It stays that way: only 5.6% of subjects cross 0.5 by year 5. So the modal rule
+    # collapses the forecast to a constant and the carry-baseline reference becomes
+    # indistinguishable from it -- while the underlying probability discriminates who actually
+    # changes at AUC 0.74-0.88. The modal statistic was measuring the model's CALIBRATION
+    # (its rates are ~2.5x too low) and reporting it as an absence of information.
+    #
+    # The fix is to score the DISTRIBUTION. Two statistics, and the distinction matters:
+    #
+    #   p_truth  the probability placed on the state that actually occurred. Intuitive, and it
+    #            reduces to plain accuracy for a deterministic forecaster, so the reference is
+    #            directly comparable. But the linear score is NOT strictly proper -- it is
+    #            maximised by betting everything on the mode, which is exactly what the
+    #            reference does. Reported because it reads well, never quoted alone.
+    #   brier    sum_k (p_k - y_k)^2 over the NSTATE states, the standard multiclass form.
+    #            STRICTLY PROPER: it cannot be improved by misreporting, and it charges the
+    #            reference for its overconfidence (0 when right, 2 when wrong). This is the
+    #            number to quote. Lower is better.
+    onehot = np.zeros(OC.shape, dtype=np.float32)
+    ii, jj = np.meshgrid(np.arange(O.shape[0]), np.arange(O.shape[1]), indexing="ij")
+    onehot[ii, jj, O] = 1.0
+    p_truth = OC[ii, jj, O]                                     # (N, n_years)
+    brier = ((OC - onehot) ** 2).sum(2)
+    p_truth_b = (O == B).astype(np.float32)                     # point mass on the baseline stage
+    brier_b = 2.0 * (O != B).astype(np.float32)
+    # P(left the baseline stage) -- the quantity the modal rule thresholds away
+    p_change = 1.0 - OC[ii, jj, np.repeat(base, O.shape[1], axis=1)]
+
     nvalid = K.sum(1)
     ok = nvalid >= min_points
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pt = np.where(ok, (p_truth * K).sum(1) / np.maximum(nvalid, 1), np.nan)
+        pt_b = np.where(ok, (p_truth_b * K).sum(1) / np.maximum(nvalid, 1), np.nan)
+        br = np.where(ok, (brier * K).sum(1) / np.maximum(nvalid, 1), np.nan)
+        br_b = np.where(ok, (brier_b * K).sum(1) / np.maximum(nvalid, 1), np.nan)
     agree = ((O == P) & K).sum(1)
     agree_b = ((O == B) & K).sum(1)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -565,17 +602,29 @@ def compute_C(cache, min_points=3):
         fn = ((O == s) & (P != s) & K).sum()
         iou[F2.STATE_NAMES[s]] = dict(iou=float(tp / max(tp + fp + fn, 1)), n_obs=int(((O == s) & K).sum()),
                                     n_pred=int(((P == s) & K).sum()))
-    # agreement as a function of years ahead
+    # everything as a function of years ahead
     by_year = []
     for j, y in enumerate(gy[use]):
         k = K[:, j]
         if k.sum() < 20:
             continue
+        ch = (O[k, j] != B[k, j])
+        auc = (roc_auc_score(ch, p_change[k, j]) if len(np.unique(ch)) > 1 else np.nan)
         by_year.append(dict(year=int(y), n=int(k.sum()),
                             agreement=float((O[k, j] == P[k, j]).mean()),
-                            agreement_baseline=float((O[k, j] == B[k, j]).mean())))
+                            agreement_baseline=float((O[k, j] == B[k, j]).mean()),
+                            p_truth=float(p_truth[k, j].mean()),
+                            p_truth_baseline=float(p_truth_b[k, j].mean()),
+                            brier=float(brier[k, j].mean()),
+                            brier_baseline=float(brier_b[k, j].mean()),
+                            obs_changed=float(ch.mean()),
+                            pred_changed_modal=float((P[k, j] != B[k, j]).mean()),
+                            mean_p_change=float(p_change[k, j].mean()),
+                            frac_p_change_over_half=float((p_change[k, j] > 0.5).mean()),
+                            auc_changed=auc))
     return dict(jac=jac, jac_b=jac_b, acc=acc, acc_b=acc_b, ok=ok, nvalid=nvalid,
                 jac_alive=jac_alive, ok_alive=ok_a, nalive=nalive,
+                pt=pt, pt_b=pt_b, br=br, br_b=br_b,
                 O=O, P=P, K=K, OC=OC, years=gy[use], iou=iou, by_year=pd.DataFrame(by_year))
 
 
@@ -668,22 +717,29 @@ def panel_C(fig, spec, cache, letter="c"):
         Patch(facecolor="0.45", label="MC state probability")],
         fontsize=6.5, loc="upper left", framealpha=0.92, borderpad=0.35, handlelength=1.6)
 
-    # ---- Jaccard distribution vs the carry-baseline-forward reference
+    # ---- per-subject BRIER against the carry-baseline-forward reference
+    # Brier and not the modal Jaccard, because the modal rule is a 0.5 threshold on a forecast
+    # whose P(left baseline stage) never reaches 0.5 in the first two years -- it turns the model
+    # into a constant and then reports the constant as "no information". Brier is strictly
+    # proper: it cannot be improved by misreporting, and it charges the reference 2.0 every time
+    # its point mass lands on the wrong state. Lower is better, so the axis runs 0 -> 2.
     ok = C["ok"]
-    bins = np.linspace(0, 1, 26)
-    ax_j.hist(C["jac_b"][ok], bins=bins, color="0.72", alpha=0.95, label="carry baseline forward")
-    ax_j.hist(C["jac"][ok], bins=bins, histtype="step", lw=2.0, color=ps.OUTCOME_COLORS["stage"],
-              label="model (MC modal)")
+    bins = np.linspace(0, 2, 31)
+    ax_j.hist(C["br_b"][ok], bins=bins, color="0.72", alpha=0.95,
+              label="carry baseline forward")
+    ax_j.hist(C["br"][ok], bins=bins, histtype="step", lw=2.0,
+              color=ps.OUTCOME_COLORS["stage"], label="model (full MC distribution)")
+    mB, mBl, mBh = boot_mean(C["br"][ok]); mBb = float(np.nanmean(C["br_b"][ok]))
+    ax_j.axvline(mB, color=ps.OUTCOME_COLORS["stage"], ls="--", lw=1.5)
+    ax_j.axvline(mBb, color="0.35", ls="--", lw=1.5)
     mj, mjl, mjh = boot_mean(C["jac"][ok]); mb = float(np.nanmean(C["jac_b"][ok]))
-    ax_j.axvline(mj, color=ps.OUTCOME_COLORS["stage"], ls="--", lw=1.5)
-    ax_j.axvline(mb, color="0.35", ls="--", lw=1.5)
-    ma, mal, mah = boot_mean(C["jac_alive"][C["ok_alive"]])
-    ax_j.set_xlabel("Jaccard index (observed vs predicted stage-at-age)")
+    ma, mal, mah = boot_mean(C["jac_alive"][C["ok_alive"]])   # still reported in metrics
+    ax_j.set_xlabel("Brier score, observed vs predicted stage-at-age  (lower is better)")
     ax_j.set_ylabel("# patients")
-    ax_j.set_title(f"Trajectory overlap, n={int(ok.sum())}\nmodel {mj:.3f} [{mjl:.3f}, {mjh:.3f}]"
-                   f"  ·  baseline-carry {mb:.3f}\n"
-                   f"alive-years only: {ma:.3f} (n={int(C['ok_alive'].sum())})", fontsize=9)
-    ax_j.legend(fontsize=7.5, loc="upper left", framealpha=0.9)
+    ax_j.set_title(f"Trajectory score, n={int(ok.sum())}\n"
+                   f"model {mB:.3f} [{mBl:.3f}, {mBh:.3f}]  ·  baseline-carry {mBb:.3f}\n"
+                   f"modal Jaccard for reference: {mj:.3f} vs {mb:.3f} — see note", fontsize=9)
+    ax_j.legend(fontsize=7.5, loc="upper right", framealpha=0.9)
 
     # ---- agreement as a function of how far ahead we are predicting
     # The single most load-bearing cell in this panel. The two mean Jaccards above are 15-year
@@ -691,8 +747,8 @@ def panel_C(fig, spec, cache, letter="c"):
     # "assume nothing changes" for the first few years and only pulls away later. Without this
     # curve a reader takes 0.626 vs 0.510 to mean a uniform advantage, which is not what happened.
     by = C["by_year"]
-    yv = by["year"].to_numpy(); am = by["agreement"].to_numpy()
-    ab = by["agreement_baseline"].to_numpy(); nn = by["n"].to_numpy()
+    yv = by["year"].to_numpy(); am = by["brier"].to_numpy()
+    ab = by["brier_baseline"].to_numpy(); nn = by["n"].to_numpy()
     ax_n = ax_y.twinx()                                   # sample size shrinks a lot -- show it
     ax_n.bar(yv, nn, width=0.72, color="0.90", zorder=0)
     ax_n.set_ylabel("n still observed", fontsize=7.5, color="0.5")
@@ -702,17 +758,22 @@ def panel_C(fig, spec, cache, letter="c"):
     ax_y.set_zorder(ax_n.get_zorder() + 1); ax_y.patch.set_visible(False)   # lines above bars
     ax_y.plot(yv, ab, "-s", ms=3.5, lw=1.7, color="0.45", label="carry baseline forward")
     ax_y.plot(yv, am, "-o", ms=3.8, lw=2.0, color=ps.OUTCOME_COLORS["stage"], label="model")
-    # first year from which the model is ahead and stays ahead
-    cross = next((int(yv[i]) for i in range(len(yv)) if np.all(am[i:] >= ab[i:])), None)
+    # LOWER is better, so "ahead" is below. First year the model is below and stays below.
+    cross = next((int(yv[i]) for i in range(len(yv)) if np.all(am[i:] <= ab[i:])), None)
     if cross is not None:
         ax_y.axvline(cross - 0.5, ls=":", color="0.3", lw=1.3)
-        ax_y.annotate(f"model overtakes\n“nothing changes”\nfrom year {cross}",
+        ax_y.annotate(f"model ahead of\n“nothing changes”\nfrom year {cross}",
                       xy=(cross - 0.4, 0.93), xycoords=("data", "axes fraction"),
                       fontsize=7, va="top", ha="left", color="0.25")
     ax_y.set_xlabel("years after baseline", fontsize=9)
-    ax_y.set_ylabel("agreement (state correct)")
-    ax_y.set_xlim(yv.min() - 0.7, yv.max() + 0.7); ax_y.set_ylim(0, 1.02)
-    ax_y.set_title("Agreement by how far ahead\n(the 15-y means above hide this)", fontsize=9)
+    ax_y.set_ylabel("Brier score (lower is better)")
+    ax_y.set_xlim(yv.min() - 0.7, yv.max() + 0.7)
+    ax_y.set_ylim(0, float(max(am.max(), ab.max())) * 1.12)
+    auc = by["auc_changed"].to_numpy()
+    ax_y.set_title("Brier by how far ahead — the model is rewarded for being uncertain\n"
+                   f"AUC for “has left the baseline stage”: {np.nanmin(auc):.2f}–"
+                   f"{np.nanmax(auc):.2f} (the reference is at chance by construction)",
+                   fontsize=9)
     ax_y.legend(fontsize=7.2, loc="lower left", framealpha=0.9)
     ps.save_data(by, OUT, "fig2c_agreement_by_year" + SUFFIX)
 
@@ -729,7 +790,17 @@ def panel_C(fig, spec, cache, letter="c"):
 
     panel_letter(ex_axes[0], letter)
     acc, acc_lo, acc_hi = boot_mean(C["acc"][ok])
+    ptm, ptl, pth = boot_mean(C["pt"][ok])
     metrics = dict(n_patients=int(ok.sum()),
+                   # the headline: strictly proper, so it cannot be gamed by betting on the mode
+                   mean_brier=round(mB, 4), mean_brier_ci=[round(mBl, 4), round(mBh, 4)],
+                   mean_brier_baseline_carry=round(mBb, 4),
+                   # intuitive but NOT strictly proper -- maximised by betting on the mode, which
+                   # is what the reference does. Never quote it alone.
+                   mean_p_truth=round(ptm, 4), mean_p_truth_ci=[round(ptl, 4), round(pth, 4)],
+                   mean_p_truth_baseline_carry=round(float(np.nanmean(C["pt_b"][ok])), 4),
+                   # kept for continuity with the NACC figure. A 0.5 threshold on a forecast that
+                   # never reaches 0.5 -- see compute_C. Do not read it as "no information".
                    mean_jaccard=round(mj, 4), mean_jaccard_ci=[round(mjl, 4), round(mjh, 4)],
                    mean_jaccard_baseline_carry=round(mb, 4),
                    n_patients_alive_years=int(C["ok_alive"].sum()),
@@ -741,6 +812,8 @@ def panel_C(fig, spec, cache, letter="c"):
                    per_state_iou={n: round(C["iou"][n]["iou"], 4) for n in names},
                    agreement_by_year=C["by_year"].to_dict("records"))
     tab = pd.DataFrame(dict(pid=df["pid"].to_numpy()[ok], n_grid_points=C["nvalid"][ok],
+                            brier_model=C["br"][ok], brier_baseline_carry=C["br_b"][ok],
+                            p_truth_model=C["pt"][ok], p_truth_baseline_carry=C["pt_b"][ok],
                             jaccard_model=C["jac"][ok], jaccard_baseline_carry=C["jac_b"][ok],
                             agreement_model=C["acc"][ok], agreement_baseline_carry=C["acc_b"][ok],
                             n_alive_grid_points=C["nalive"][ok],
