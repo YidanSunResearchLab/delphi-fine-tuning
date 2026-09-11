@@ -43,20 +43,32 @@ class SoftBinner:
         self.tok2scale_np = tok2scale
         self.sig_x, self.sig_y = sig_x, sig_y
         self.tok2scale = torch.as_tensor(tok2scale, device=device)
+        # sigma anchors as tensors so the interpolation stays on-device. The numpy path forced
+        # a .cpu() sync on every batch, which is free on CPU and costs a full pipeline stall
+        # per step on a GPU.
+        self.sig_xt = torch.as_tensor(sig_x, dtype=torch.float32, device=device)
+        self.sig_yt = torch.as_tensor(sig_y, dtype=torch.float32, device=device)
         self.edges = torch.as_tensor(edges, dtype=torch.float32, device=device)
         self.ids = torch.as_tensor(ids, device=device)
         self.K = V.MAX_LEVELS
         self.device = device
 
-    def sigma(self, scale_idx, values):
-        """Measured sigma per position, piecewise-linear in the reading (numpy: np.interp is
-        the cheapest correct thing and this is a few thousand elements)."""
-        out = np.zeros_like(values, dtype=np.float32)
-        for si in range(self.sig_x.shape[0]):
-            m = scale_idx == si
-            if m.any():
-                out[m] = np.interp(values[m], self.sig_x[si], self.sig_y[si])
-        return out
+    def sigma_t(self, scale_sel, v):
+        """Measured sigma per position, piecewise-linear in the reading, entirely on-device.
+
+        Equivalent to np.interp with flat extrapolation: the anchor arrays are padded by
+        repeating their last point, and the interpolation weight is clamped to [0, 1], so a
+        reading outside the measured range takes the nearest anchor's sigma rather than an
+        extrapolated one.
+        """
+        xs = self.sig_xt.to(v.device)[scale_sel]              # (n, A)
+        ys = self.sig_yt.to(v.device)[scale_sel]
+        A = xs.shape[1]
+        j = torch.searchsorted(xs.contiguous(), v[:, None].contiguous()).clamp(1, A - 1)
+        x0 = xs.gather(1, j - 1).squeeze(1); x1 = xs.gather(1, j).squeeze(1)
+        y0 = ys.gather(1, j - 1).squeeze(1); y1 = ys.gather(1, j).squeeze(1)
+        t = ((v - x0) / (x1 - x0).clamp(min=1e-9)).clamp(0.0, 1.0)
+        return y0 + t * (y1 - y0)
 
     def __call__(self, tokens, values):
         """tokens (B, T) MODEL-space long; values (B, T) float with NaN off-scale.
@@ -90,9 +102,7 @@ class SoftBinner:
             good = torch.isfinite(v)
             idx, s_sel, v = idx[good], s_sel[good], v[good]
             if idx.numel():
-                sig = torch.as_tensor(
-                    self.sigma(s_sel.cpu().numpy(), v.detach().cpu().numpy().astype(np.float64)),
-                    device=dev, dtype=torch.float32)
+                sig = self.sigma_t(s_sel, v)
                 e = self.edges.to(dev)[s_sel]                     # (n, K-1)
                 z = (e - v[:, None]) / sig[:, None].clamp(min=1e-6)
                 cdf = 0.5 * (1.0 + torch.erf(z / _SQRT2))         # (n, K-1); +inf edges -> 1
