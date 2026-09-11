@@ -468,18 +468,25 @@ def panel_c(lg, out_dir, seed=0):
     rng = np.random.default_rng(seed)
     est = {}
     for scale in V.SCALE_ORDER:
+        if scale not in RAW_COL:
+            print(f"    {scale:<38s} skipped, fig_design has no raw column for it")
+            continue
         if RAW_COL[scale] not in lg.columns:
+            print(f"    {scale:<38s} skipped, {RAW_COL[scale]} is not in the raw file")
             continue
         mids, diffs = second_difference_triples(lg, scale)
-        obs = sigma_by_bin(mids, diffs, SIGMA_BINS[scale], rng)
+        obs = sigma_by_bin(mids, diffs, display_bins(scale, mids), rng)
         if len(obs) >= 2:
             est[scale] = (mids, obs)
         else:
             print(f"    {scale:<38s} skipped, {len(mids):,} triples is too few to bin")
+    if not est:
+        print("    panel C                                skipped, no scale had usable triples")
+        return []
     scales = list(est)
     fig, axes = plt.subplots(1, len(scales), figsize=(4.1 * len(scales), 4.5))
     axes = np.atleast_1d(axes)
-    frames, measured, summary = [], {}, []
+    frames, measured, summary, marks, steps = [], {}, [], {}, []
 
     for ax, scale in zip(axes, scales):
         mids, obs = est[scale]
@@ -487,50 +494,88 @@ def panel_c(lg, out_dir, seed=0):
         xs = np.linspace(min(obs["value"].min(), anchors[:, 0].min()),
                          max(obs["value"].max(), anchors[:, 0].max()), 200)
         ys = np.array([V.sigma_of(scale, x) for x in xs])
+        deg = obs["ci_degenerate"].to_numpy()
+        half = obs["estimator_step"].to_numpy() / 2.0
 
         ax_clean(ax)
         ax.plot(xs, ys, color=ORANGE, lw=2, zorder=3)
         ax.plot(anchors[:, 0], anchors[:, 1], "o", ms=8, mfc=SURFACE, mec=ORANGE, mew=2, zorder=4)
-        ax.vlines(obs["value"], obs["ci_lo"], obs["ci_hi"], color=BLUE, lw=1.4, zorder=4)
+        ax.vlines(obs["value"][~deg], obs["ci_lo"][~deg], obs["ci_hi"][~deg],
+                  color=BLUE, lw=1.4, zorder=4)
         ax.plot(obs["value"], obs["sigma"], "o", ms=8, color=BLUE, zorder=5)
+
+        ax.set_xlabel(SCALE_UNIT.get(scale, "raw units"))
+        ax.set_ylabel("measurement sigma (raw units)" if scale == scales[0] else None)
+        ax.set_ylim(0, max((obs["sigma"] + half).max(), obs["ci_hi"].max(),
+                           anchors[:, 1].max()) * 1.42)
+        # A bin whose bootstrap never left one atom gets the estimator's RESOLUTION in grey, not
+        # a 95% interval: a zero-width blue bar reads as a perfectly precise measurement and is
+        # the opposite -- it is the bin where the estimator cannot resolve at all.
+        if deg.any():
+            v, s, hw = obs["value"][deg].to_numpy(), obs["sigma"][deg].to_numpy(), half[deg]
+            cap = 0.012 * float(np.ptp(ax.get_xlim()))
+            ax.vlines(v, s - hw, s + hw, color=GREY, lw=1.4, zorder=4)
+            ax.hlines(np.r_[s - hw, s + hw], np.r_[v, v] - cap, np.r_[v, v] + cap,
+                      color=GREY, lw=1.4, zorder=4)
+            steps.append(float(np.median(hw)))
 
         lohi = obs.iloc[[0, -1]]
         direction = "falls" if lohi["sigma"].iloc[-1] < lohi["sigma"].iloc[0] else "RISES"
         ax.set_title(f"{scale}  sigma {direction} "
                      f"{lohi['sigma'].iloc[0]:.2f} -> {lohi['sigma'].iloc[-1]:.2f}",
                      loc="left", color=INK, fontsize=11)
-        ax.set_xlabel(SCALE_UNIT[scale])
-        ax.set_ylabel("measurement sigma (raw units)" if scale == scales[0] else None)
-        ax.set_ylim(0, max(obs["ci_hi"].max(), anchors[:, 1].max()) * 1.42)
         ax.text(0.03, 0.97, f"{len(mids):,} annual triples\n"
-                            f"{int(obs['n_triples'].min()):,}-{int(obs['n_triples'].max()):,} per bin",
+                            f"{int(obs['n_triples'].min()):,}-{int(obs['n_triples'].max()):,} per bin"
+                            + (f"\n{int(deg.sum())} of {len(obs)} bins at the estimator's grain"
+                               if deg.any() else ""),
                 transform=ax.transAxes, va="top", color=INK2, fontsize=9)
-        # direct labels on every panel: measured at its left end, the anchors at their right
-        ax.annotate("measured", xy=(obs["value"].iloc[0], obs["sigma"].iloc[0]),
-                    xytext=(8, 13), textcoords="offset points", color=INK, fontsize=9.5)
-        ax.annotate("vocab.SCALE_SIGMA", xy=(anchors[-1, 0], anchors[-1, 1]),
-                    xytext=(4, 22), textcoords="offset points", color=INK, fontsize=9.5,
-                    ha="right")
+        # everything the direct labels have to clear, in data units
+        marks[scale] = (np.c_[obs["value"], obs["sigma"]].tolist()
+                        + np.c_[obs["value"], np.where(deg, obs["sigma"] - half, obs["ci_lo"])].tolist()
+                        + np.c_[obs["value"], np.where(deg, obs["sigma"] + half, obs["ci_hi"])].tolist()
+                        + anchors.tolist() + np.c_[xs, ys][::4].tolist())
 
         obs.insert(0, "scale", scale)
         frames.append(obs)
         measured[f"{scale} sigma span"] = (f"{lohi['sigma'].iloc[0]:.2f} -> "
                                            f"{lohi['sigma'].iloc[-1]:.2f}  "
-                                           f"({len(mids):,} triples)")
+                                           f"({len(mids):,} triples"
+                                           + (f", {int(deg.sum())} degenerate CI" if deg.any() else "")
+                                           + ")")
         summary += [("C", f"{scale}_sigma_low_end", round(float(lohi['sigma'].iloc[0]), 3)),
                     ("C", f"{scale}_sigma_high_end", round(float(lohi['sigma'].iloc[-1]), 3)),
-                    ("C", f"{scale}_n_triples", len(mids))]
+                    ("C", f"{scale}_n_triples", len(mids)),
+                    ("C", f"{scale}_bins_at_estimator_grain", int(deg.sum()))]
 
-    h = [plt.Line2D([], [], color=BLUE, marker="o", ms=8, lw=1.4, label="measured (MAD of the 2nd difference / sqrt 6)"),
+    h = [plt.Line2D([], [], color=BLUE, marker="o", ms=8, lw=1.4, label="measured (MAD of the 2nd difference / sqrt 6), 95% bootstrap CI"),
          plt.Line2D([], [], color=ORANGE, marker="o", ms=8, mfc=SURFACE, mew=2, lw=2, label="anchors the tokenizer uses")]
-    fig.legend(handles=h, loc="lower center", ncol=2, fontsize=9.5, labelcolor=INK2,
+    if steps:
+        h.append(plt.Line2D([], [], color=GREY, marker="_", ms=9, lw=1.4,
+                            label=f"+/- {np.median(steps):.2f} = what the estimator can resolve "
+                                  f"here (the bootstrap holds one value, so there is no CI)"))
+    fig.legend(handles=h, loc="lower center", ncol=len(h), fontsize=9.5, labelcolor=INK2,
                bbox_to_anchor=(0.5, -0.005))
     fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.87))
+
+    # after tight_layout, so the label boxes are measured against the axes that get drawn
+    for ax, scale in zip(axes, scales):
+        obs = est[scale][1]
+        anchors = np.asarray(V.SCALE_SIGMA[scale], float)
+        blocked = [(0.0, 0.80, 0.55, 1.0)]           # the triple-count block's lane
+        blocked.append(place_label(ax, "vocab.SCALE_SIGMA", tuple(anchors[-1]),
+                                   marks[scale], blocked))
+        place_label(ax, "measured", (obs["value"].iloc[0], obs["sigma"].iloc[0]),
+                    marks[scale], blocked)
+
+    quantised = [s for s in scales if est[s][1]["estimator_step"].max() > 0]
     fig.text(0.005, 0.99, "C  Measurement noise runs opposite ways, so no single sigma is right",
              va="top", ha="left", color=INK, fontsize=12.5)
     fig.text(0.005, 0.925, "second differences of annual triples, sigma = 1.4826 * MAD / sqrt 6."
-                           "  MMSE is integer-valued, so its estimate is quantised in steps of "
-                           f"{1.4826 / np.sqrt(6.0):.2f} -- the flat runs are the instrument, not a fit",
+                           + (f"  {' and '.join(quantised)} read in whole units, so sigma can only "
+                              f"land on multiples of {1.4826 / np.sqrt(6.0):.2f} -- the flat runs "
+                              f"are the instrument, and a bin whose bootstrap never moved off one "
+                              f"value carries that resolution in grey instead of a CI"
+                              if quantised else ""),
              va="top", color=INK2, fontsize=9.5)
     save(fig, out_dir, "fig_design_C_measurement_noise", pd.concat(frames, ignore_index=True), measured)
     return summary
