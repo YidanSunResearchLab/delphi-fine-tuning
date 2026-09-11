@@ -37,7 +37,7 @@ def patient_stream(data, s, n):
 def get_batch(ix, data, p2i, select='center', index='patient', padding='regular',
               block_size=48, device='cpu', augment_tokens=None,
               augment_age_range_days=(-20 * 365, 40 * 365),
-              no_event_token_rate=5, cut_batch=False):
+              no_event_token_rate=5, cut_batch=False, values=None, binner=None):
     """
     Get a batch of data from the dataset. This function packs sequences in a batch and also
     inserts "no event" tokens randomly with the average rate of one every five years.
@@ -57,12 +57,16 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
         augment_age_range_days: (low, high) uniform day offset applied to those tokens
         no_event_token_rate: average rate of "no event" tokens in years
         cut_batch: whether to cut the batch to the smallest size possible
+        values: parallel float32 array of RAW scale readings (NaN off-scale), aligned with
+            `data` row for row. None -> hard one-hot behaviour, exactly as before.
+        binner: a softlabel.SoftBinner. Required when `values` is given.
 
     Returns:
-        x: input tokens
-        a: input ages
-        y: target tokens
-        b: target ages
+        x, a, y, b            input tokens / ages, target tokens / ages
+        (Wx, Ix), (Wy, Iy)    soft weights and their MODEL ids for input and target, each
+                              (B, T, K). Returned only when `values` is given; a one-hot W
+                              reproduces the hard path bit for bit, so a caller that ignores
+                              them loses nothing.
     """
 
     mask_time = -10000.
@@ -96,6 +100,8 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
 
     tokens = torch.from_numpy(data[:, 2][batch_idx].astype(np.int64))
     ages = torch.from_numpy(data[:, 1][batch_idx].astype(np.float32))
+    vals = (torch.from_numpy(np.asarray(values)[batch_idx].astype(np.float32))
+            if values is not None else None)
 
     # Augment the ages of "trait" tokens to avoid immortality bias.
     #
@@ -128,6 +134,8 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
 
     tokens = tokens.masked_fill(~mask, -1)
     ages = ages.masked_fill(~mask, mask_time)
+    if vals is not None:
+        vals = vals.masked_fill(~mask, float('nan'))
 
     # ---- synthetic "no event" markers, CONFINED TO THE OBSERVATION WINDOW -----------------
     #
@@ -179,6 +187,8 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
     # stack "no event" markers alongside the real tokens
     tokens = torch.hstack([tokens, pad_tokens])
     ages = torch.hstack([ages, pad])
+    if vals is not None:                                  # markers carry no reading
+        vals = torch.hstack([vals, torch.full_like(pad, float('nan'))])
 
     # belt and braces: nothing may sit past the last real token
     tokens = tokens.masked_fill(ages > m, -1)
@@ -188,6 +198,8 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
     s = torch.argsort(ages, 1)
     tokens = torch.gather(tokens, 1, s)
     ages = torch.gather(ages, 1, s)
+    if vals is not None:
+        vals = torch.gather(vals, 1, s)
 
     # a technical detail: the token 0 is reserved for padding, so we shift all tokens by one
     tokens = tokens + 1
@@ -197,6 +209,8 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
         cut_margin = torch.min(torch.sum(tokens == 0, 1))
         tokens = tokens[:, cut_margin:]
         ages = ages[:, cut_margin:]
+        if vals is not None:
+            vals = vals[:, cut_margin:]
 
     # cut to maintain the block size
     #TODO it would be better to use the strategy defined by the "select" parameter
@@ -204,12 +218,16 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
         cut_margin = tokens.shape[1] - block_size - 1
         tokens = tokens[:, cut_margin:]
         ages = ages[:, cut_margin:]
+        if vals is not None:
+            vals = vals[:, cut_margin:]
 
     # shift by one to generate targets
     x = tokens[:, :-1]
     a = ages[:, :-1]
     y = tokens[:, 1:]
     b = ages[:, 1:]
+    vx = vals[:, :-1] if vals is not None else None
+    vy = vals[:, 1:] if vals is not None else None
 
     # if the first token is a "no event" token, mask it and the corresponding target
     x = x.masked_fill((x == 0) * (y == 1), 0)
@@ -219,6 +237,16 @@ def get_batch(ix, data, p2i, select='center', index='patient', padding='regular'
     if device == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
         x, a, y, b = [i.pin_memory().to(device, non_blocking=True) for i in [x, a, y, b]]
+        if vx is not None:
+            vx, vy = vx.pin_memory().to(device, non_blocking=True), vy.pin_memory().to(device, non_blocking=True)
     else:
         x, a, y, b = x.to(device), a.to(device), y.to(device), b.to(device)
-    return x, a, y, b
+        if vx is not None:
+            vx, vy = vx.to(device), vy.to(device)
+
+    if vals is None:
+        return x, a, y, b
+    if binner is None:
+        raise ValueError("get_batch got `values` but no `binner`")
+    # y carries -1 at masked positions; clamp for the lookup, the weight is discarded anyway
+    return x, a, y, b, binner(x.clamp(min=0), vx), binner(y.clamp(min=0), vy)

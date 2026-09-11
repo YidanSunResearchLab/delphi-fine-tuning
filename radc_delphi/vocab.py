@@ -84,10 +84,19 @@ NAMES = [
     "Alcohol: heavy",                                   # 21
     "Alcohol: unknown",                                 # 22
     # ---- ordinal scales, hysteresis keep-transitions, predicted (23..35) ----
-    "MMSE 0-17",                                        # 23
+    # MMSE is SIX levels, not four, and the three extra cuts are all above 26. 73.6% of
+    # visits sit in the old top bin, so a single 27-30 level made the model blind to three
+    # quarters of the data -- measured: zero emitted tokens for any change inside it, while
+    # splitting it yields 3,993. The bottom of the scale is deliberately NOT split: below 18
+    # the measurement SD is 3.0 points (against 0.6 at the ceiling) and the training set holds
+    # ~840 observations there, so finer bins would buy neither resolution nor learnability.
+    "MMSE <18",                                         # 23
     "MMSE 18-23",                                       # 24
     "MMSE 24-26",                                       # 25
-    "MMSE 27-30",                                       # 26
+    "MMSE 27",                                          # 26
+    "MMSE 28",                                          # 27
+    "MMSE 29",                                          # 28
+    "MMSE 30",                                          # 29
     "Global cognition <=-2.0",                          # 27
     "Global cognition -2.0..-1.0",                      # 28
     "Global cognition -1.0..-0.3",                      # 29
@@ -136,7 +145,8 @@ STATIC_IDS = tuple(range(STATIC_FIRST, STATIC_LAST + 1))
 # the underlying measurement -- but any code that computes "worsened by >= 1 bin" must use
 # SEVERITY_ORDER below rather than assuming a higher id is worse.
 SCALES = {
-    "MMSE": (ID["MMSE 0-17"], ID["MMSE 18-23"], ID["MMSE 24-26"], ID["MMSE 27-30"]),
+    "MMSE": (ID["MMSE <18"], ID["MMSE 18-23"], ID["MMSE 24-26"],
+             ID["MMSE 27"], ID["MMSE 28"], ID["MMSE 29"], ID["MMSE 30"]),
     "COG": (ID["Global cognition <=-2.0"], ID["Global cognition -2.0..-1.0"],
             ID["Global cognition -1.0..-0.3"], ID["Global cognition -0.3..0.2"],
             ID["Global cognition 0.2..0.8"], ID["Global cognition >0.8"]),
@@ -192,10 +202,133 @@ REPEATABLE_TOKENS = tuple(sorted(
 # being observed, and dying afterwards is the competing risk the evaluation must respect.
 TERMINATION_TOKENS = (DEATH,)
 
+# WHAT COUNTS AS "THE NEXT EVENT" for the time-to-event target -- deliberately NOT the same
+# set as IGNORE_TOKENS, and conflating the two was a live bug in the delivered model.
+#
+# IGNORE_TOKENS answers "which positions are not cross-entropy targets", and No-event must NOT
+# be in it: the synthetic markers are the only negative evidence in the stream, so the model
+# has to be scored on predicting them.
+#
+# This set answers a different question -- "which tokens does the waiting-time target skip".
+# No-event MUST be in it, because generate() masks the marker and can never emit one, so the
+# intensity has to be trained on the gap it will actually be asked to reproduce. Measured on
+# the delivered build, 41.3% of dt targets pointed at a synthetic marker, which compressed the
+# target mean from 1.65 y to 0.89 y and turned 8.5% of censored positions into fabricated
+# short answers.
+DT_IGNORE_TOKENS = list(IGNORE_TOKENS) + [NO_EVENT]
+
 # Tokens whose ages get jittered to break immortality bias (DISK space, for get_batch).
 # The statics are recorded traits, not events that happened at the baseline visit, so pinning
 # them to that exact age teaches the model that seeing them implies survival to it.
 AUGMENT_TOKENS_DISK = tuple(t - 1 for t in STATIC_IDS)
+
+
+# ---------------------------------------------------------------- continuous-value support
+# Bin edges in the RAW units of each scale, low -> high. len(edges) == len(levels) - 1.
+SCALE_EDGES = {
+    # HALF-INTEGER edges above 26, and that is not cosmetic: 98.4% of cts_estmmse30 values
+    # are integers, so an edge ON an integer splits a mode and the level between two such
+    # edges is never the modal bin. Measured with edges at 28 and 29, the level "28-29"
+    # received 4 tokens in the entire cohort against 3,803 and 4,659 either side. With edges
+    # at 27.5 / 28.5 / 29.5 each integer sits in its own bin's centre, which is also why the
+    # top four levels are named for the integer they carry.
+    "MMSE": (18.0, 24.0, 26.5, 27.5, 28.5, 29.5),
+    "COG": (-2.0, -1.0, -0.3, 0.2, 0.8),
+    "BMI": (20.0, 30.0),
+}
+
+# MEASUREMENT NOISE, in raw units, as (value, sigma) anchors interpolated piecewise-linearly
+# and held flat outside the range. This is the load-bearing constant of the whole soft-label
+# scheme -- the weights are a posterior given sigma, so a wrong sigma is a wrong posterior --
+# so it is MEASURED, not assumed.
+#
+# ESTIMATOR. For three consecutive visits one year apart, the second difference
+# v1 - 2*v2 + v3 has variance 6*sigma^2 if the true trajectory is locally linear, so
+# sigma = SD(second difference) / sqrt(6). SD is taken as 1.4826 * MAD so that genuine sharp
+# decline does not inflate it. Computed on 21,214 (MMSE), 23,636 (cognition) and 15,891 (BMI)
+# eligible triples.
+#
+# All three are heteroscedastic, and BMI runs the OPPOSITE way to the cognitive scales --
+# heavier subjects vary more, while the cognitive instruments get more precise as they
+# saturate. A single constant would be wrong for every one of them.
+SCALE_SIGMA = {
+    "MMSE": ((18.0, 2.42), (26.0, 1.82), (27.5, 1.21), (29.5, 0.61)),
+    "COG": ((-1.5, 0.290), (-1.0, 0.223), (-0.15, 0.189), (0.5, 0.161), (1.2, 0.147)),
+    "BMI": ((20.0, 0.759), (25.0, 0.837), (32.0, 1.110)),
+}
+
+# Total-variation distance between consecutive soft weight vectors, above which a token is
+# emitted. This REPLACES the hysteresis margins: hysteresis was a stateful, path-dependent
+# filter that disagreed with the raw bin on 6.2% of MMSE visits and deleted real recoveries
+# (measured: a 23.0 -> 25.9 rebound emitted nothing at all). A TV threshold is stateless and
+# is expressed in units of the measurement noise, so a sub-sigma move can never cross it --
+# measured 0.0% of emissions correspond to a change below 1 sigma, against 11.8% under hard
+# binning. Tuned so sequence length stays close to the delivered build.
+SCALE_TV_THRESHOLD = {"MMSE": 0.55, "COG": 0.55, "BMI": 0.50}
+
+MAX_LEVELS = max(len(v) for v in SCALES.values())
+SCALE_ORDER = tuple(SCALES.keys())                       # scale index 0, 1, 2 ...
+
+
+def scale_tables():
+    """Padded lookup tables for the vectorised soft-weight path in batching.get_batch.
+
+    Returns (tok2scale, edges, ids, sig_x, sig_y), all numpy:
+        tok2scale (VOCAB_SIZE,)            scale index per MODEL token id, -1 if not a scale
+        edges     (S, MAX_LEVELS-1)        bin edges, padded with +inf so the padded levels
+                                           receive exactly zero weight
+        ids       (S, MAX_LEVELS)          MODEL ids of each level, padded with -1
+        sig_x/y   (S, A)                   sigma anchors, padded by repeating the last point
+    """
+    import numpy as _np
+    S, K = len(SCALE_ORDER), MAX_LEVELS
+    tok2scale = _np.full(VOCAB_SIZE, -1, dtype=_np.int64)
+    edges = _np.full((S, K - 1), _np.inf)
+    ids = _np.full((S, K), -1, dtype=_np.int64)
+    A = max(len(SCALE_SIGMA[s]) for s in SCALE_ORDER)
+    sig_x = _np.zeros((S, A))
+    sig_y = _np.zeros((S, A))
+    for si, name in enumerate(SCALE_ORDER):
+        lv = SCALES[name]
+        ids[si, :len(lv)] = lv
+        tok2scale[list(lv)] = si
+        e = SCALE_EDGES[name]
+        edges[si, :len(e)] = e
+        a = SCALE_SIGMA[name]
+        xs = [p[0] for p in a] + [a[-1][0]] * (A - len(a))
+        ys = [p[1] for p in a] + [a[-1][1]] * (A - len(a))
+        sig_x[si], sig_y[si] = xs, ys
+    return tok2scale, edges, ids, sig_x, sig_y
+
+
+def sigma_of(scale, v):
+    """Measured measurement SD of `scale` at raw value `v` (piecewise linear, flat outside)."""
+    import numpy as _np
+    a = SCALE_SIGMA[scale]
+    xs = _np.array([p[0] for p in a], dtype=float)
+    ys = _np.array([p[1] for p in a], dtype=float)
+    return float(_np.interp(v, xs, ys))
+
+
+def soft_weights(scale, v, sigma=None):
+    """P(the TRUE value falls in each bin | a noisy observation `v`), as a numpy vector.
+
+    Under a flat prior this is the exact posterior, not a heuristic softening:
+        w_k = Phi((edge_k - v) / sigma) - Phi((edge_{k-1} - v) / sigma)
+
+    Why it matters that this is a posterior. Training against these as soft targets makes the
+    model's softmax converge to E[w | history], and by the tower property that equals
+    P(true value in bin k | history) -- the predictive distribution over the TRUE value, with
+    measurement noise deconvolved out. Hard labels instead ask the model to predict the NOISY
+    observation, which is both harder and not what anyone wants to know.
+    """
+    import numpy as _np
+    from math import erf, sqrt
+    e = _np.asarray(SCALE_EDGES[scale], dtype=float)
+    s = sigma if sigma is not None else sigma_of(scale, v)
+    z = (e - v) / s
+    cdf = _np.concatenate([[0.0], 0.5 * (1.0 + _np.vectorize(erf)(z / sqrt(2.0))), [1.0]])
+    return _np.diff(cdf)
 
 
 def labels():
@@ -219,7 +352,9 @@ def check():
     assert set(IGNORE_TOKENS) == {PADDING} | set(STATIC_IDS), \
         "ignore mask must be padding + statics, and must NOT contain No event"
     assert NO_EVENT not in IGNORE_TOKENS, "No event is a training target, not an ignored token"
-    assert len(REPEATABLE_TOKENS) == 21, f"expected 21 repeatable ids, got {len(REPEATABLE_TOKENS)}"
+    n_rep = sum(len(v) for v in SCALES.values()) + len(ONSET_IDS) + len(MED_IDS)
+    assert len(REPEATABLE_TOKENS) == n_rep, \
+        f"repeatable set has {len(REPEATABLE_TOKENS)} ids, the groups imply {n_rep}"
     assert all(t not in IGNORE_TOKENS for t in ENDPOINT_IDS), "an endpoint is masked out of the loss"
     return True
 

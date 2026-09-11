@@ -124,17 +124,20 @@ def main(argv=None):
         sys.exit(f"[build] missing from {a.radc_dir}:\n    " + "\n    ".join(missing))
 
     print(f"[build] tokenizing {a.radc_dir}")
-    events, subjects, report = tokenize(a.radc_dir, emit_ad_rx=a.emit_ad_rx,
-                                        canary=a.canary,
-                                        canary_fraction=a.canary_fraction)
+    events, raw_values, subjects, report = tokenize(
+        a.radc_dir, emit_ad_rx=a.emit_ad_rx, canary=a.canary,
+        canary_fraction=a.canary_fraction)
 
     # The other half of the guard: a production build must not contain the canary id, whatever
     # the flag said. The vocabulary is only extended by tokenize(canary=True), so this is the
     # assertion that the extension did not happen.
     if not a.canary:
-        assert V.VOCAB_SIZE == 50 and CANARY_NAME not in V.ID, \
-            "the canary vocabulary is live in a production build"
-        assert events[:, 2].max() < 50, "a token past the standard table in a production build"
+        # Derived, not a magic number: the canary build APPENDS one id past the standard
+        # table, so "the table is unextended and nothing used an id past its end" is the
+        # invariant. A hardcoded 50 here fired on a legitimate vocabulary change instead.
+        assert CANARY_NAME not in V.ID, "the canary vocabulary is live in a production build"
+        assert events[:, 2].max() < V.VOCAB_SIZE, \
+            "a token past the standard table in a production build"
 
     print(f"\n[build] stratified by-subject split, seed {a.seed}")
     strata = build_strata(subjects)
@@ -150,7 +153,7 @@ def main(argv=None):
         f"disk token max {disk[:, 2].max()} != vocab_size-2 ({V.VOCAB_SIZE - 2})"
     disk = disk.astype(np.uint32)
 
-    stats = write_splits(disk, assignment, out_dir, V.labels())
+    stats = write_splits(disk, assignment, out_dir, V.labels(), values=raw_values)
 
     # per-subject metadata, with the split, for the evaluation stack
     split_of = {}
@@ -184,7 +187,8 @@ def main(argv=None):
               f"died {100 * (s.died == 1).mean():5.1f}%  "
               f"ROS/MAP/LATC {100 * (s.study == 'ROS').mean():4.1f}/"
               f"{100 * (s.study == 'MAP').mean():4.1f}/{100 * (s.study == 'LATC').mean():4.1f}  "
-              f"median fu {s.followup_y.median():.0f}y")
+              f"median fu {s.followup_y.median():.0f}y  "
+              f"AD-label missing {int(s.ad_label_missing.sum()):>3}")
 
     def _md5(p):
         h = hashlib.md5()
@@ -202,6 +206,8 @@ def main(argv=None):
         token_counts=report["counts"],
         n_canary_subjects=report.get("n_canary_subjects"),
         n_canary_tokens=report.get("n_canary_tokens"),
+        n_baseline_impaired=report.get("n_baseline_impaired"),
+        n_ad_label_missing=report.get("n_ad_label_missing"),
         splits={k: dict(events=v[0], subjects=v[1]) for k, v in stats.items()},
         fingerprints={f: _md5(os.path.join(out_dir, f))
                       for f in ("train.bin", "val.bin", "test.bin", "labels.csv")},

@@ -239,6 +239,12 @@ class Engine:
         inter-visit intervals in this cohort are exactly one year because RADC is an annual
         protocol, so the waiting-time head is scored almost entirely on the study's visit
         calendar. Only two tokens sit on a real clock (the AD diagnosis and death).
+
+        COMPUTED UNMASKED, and that makes it a different quantity from the val loss train.py
+        prints when mask_missing_ad_label is on. There, the 287 subjects with no AD label have
+        the AD column blanked from their cross-entropy; here every subject is scored the same
+        way, because this path reads only the .bin and takes no view on whose label is
+        trustworthy. The two numbers are each internally consistent -- do not compare them.
         """
         d = data_dir or self.data_dir
         arr = np.fromfile(os.path.join(d, f"{split}.bin"), dtype=np.uint32).reshape(-1, 3)

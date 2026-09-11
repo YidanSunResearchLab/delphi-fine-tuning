@@ -49,6 +49,7 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 from radc_delphi.model import Delphi, DelphiConfig          # noqa: E402
 from radc_delphi.batching import get_p2i, get_batch         # noqa: E402
+from radc_delphi.softlabel import SoftBinner                # noqa: E402
 
 # -----------------------------------------------------------------------------
 # defaults -- every one of these is overridable from a config file or the CLI
@@ -109,6 +110,14 @@ mask_ties = True
 time_head = False
 dt_target = 'gather'           # 'gather' | 'next_visit' | 'next_event'
 ignore_tokens = [0]
+# WHICH tokens the timing target skips. MUST include No-event even though ignore_tokens must
+# not -- see DelphiConfig.dt_ignore_tokens. None reproduces the delivered (buggy) behaviour.
+dt_ignore_tokens = None
+# Soft labels: read the raw scale reading from <split>_values.bin and represent it as the
+# posterior over bins rather than a hard one-hot, on both the input embedding and the
+# cross-entropy target. Falls back silently to hard labels if the values file is absent, and
+# is bit-for-bit identical to the hard path when the weights happen to be one-hot.
+soft_labels = False
 data_fraction = 1.0
 
 # cohort filter -- keep a subject with >= cohort_min_visits distinct event ages, OR
@@ -119,9 +128,35 @@ cohort_short_min_visits = 2
 stage_tokens_disk = ()         # DISK-space ids of the ordinal staging scale; set by the config
 no_event_token_rate = 5
 
+# Blank the AD column out of the cross-entropy for subjects whose AD label is MISSING rather
+# than negative -- RADC records no age_first_ad_dx for anyone already demented at the baseline
+# cycle, so they carry no AD token and are indistinguishable from genuine non-converters.
+# Set False for the delivered behaviour; the two arms are one argument apart on purpose.
+# `ad_dx_token` is the MODEL-space id and must come from the config, never be hard-coded here.
+mask_missing_ad_label = True
+ad_dx_token = 0
+
 # DISK-space token ids whose ages get jittered to break immortality bias (see batching.py).
 # None disables it. A config that emits baseline traits should name them here.
 augment_tokens = None
+
+# Free-running rollout probe -- radc_delphi/rollout_probe.py, run at every evaluation beside
+# the two losses. OFF by default so the delivered loop is byte-identical without it.
+#
+# WHY IT IS NOT OPTIONAL INFORMATION. loss_ce and loss_dt are both teacher-forced: every
+# prediction is scored one step ahead of a real prefix. Nothing in either term is sensitive to
+# whether a FREE-RUNNING rollout terminates. Measured on two checkpoints from this repository,
+# out-radc-final beats out-radc-testckpt on both components (2.140/6.536 against 2.552/6.602)
+# while 98.8% of its age-80 draws never emit Death, against 1.2% for the one it beats. No
+# setting of `select_on` can separate them, because the separating quantity is not in either
+# loss. Turn this on for anything whose output is a simulated trajectory.
+rollout_probe = False
+rollout_probe_subjects = 24
+rollout_probe_n_mc = 32
+rollout_probe_age = 80.0
+rollout_probe_max_new = 128
+rollout_probe_until_age = 110.0
+rollout_probe_seed = 0
 
 # stop after this many consecutive evaluations without a new best val loss. 0 disables.
 patience = 0
@@ -200,6 +235,19 @@ if not os.path.exists(os.path.join(data_dir, 'train.bin')):
 train_data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint32, mode='r').reshape(-1, 3)
 val_data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint32, mode='r').reshape(-1, 3)
 
+def _load_values(split):
+    p = os.path.join(data_dir, f'{split}_values.bin')
+    return np.fromfile(p, dtype=np.float32) if os.path.exists(p) else None
+
+train_values, val_values = _load_values('train'), _load_values('val')
+if soft_labels and train_values is None:
+    sys.exit(f"[train] soft_labels=True but {data_dir}/train_values.bin is missing. "
+             f"Rebuild with a tokenizer that emits raw scale readings.")
+binner = SoftBinner(device='cpu') if soft_labels else None
+if soft_labels:
+    print(f"[train] soft labels ON: raw readings from *_values.bin, "
+          f"{len(train_values):,} train values")
+
 if cv_folds and cv_folds > 1:
     # Pool train+val, then re-cut by subject into `cv_folds` stratified folds.
     import pandas as pd
@@ -208,7 +256,12 @@ if cv_folds and cv_folds > 1:
         sys.exit(f"[train] cv_folds={cv_folds} needs {subj_csv} (written by build_dataset.py)")
     sub = pd.read_csv(subj_csv)
     pooled = np.concatenate([np.asarray(train_data), np.asarray(val_data)])
-    pooled = pooled[np.lexsort((pooled[:, 2], pooled[:, 1], pooled[:, 0]))]
+    pooled_v = (np.concatenate([train_values, val_values])
+                if train_values is not None else None)
+    _ord = np.lexsort((pooled[:, 2], pooled[:, 1], pooled[:, 0]))
+    pooled = pooled[_ord]
+    if pooled_v is not None:
+        pooled_v = pooled_v[_ord]
     in_pool = set(np.unique(pooled[:, 0]).tolist())
     sub = sub[sub['projid'].isin(in_pool)].sort_values('projid').reset_index(drop=True)
     # deal subjects round-robin within each stratum, after a seeded shuffle: every fold gets
@@ -223,6 +276,9 @@ if cv_folds and cv_folds > 1:
     assign = np.array([fold_of[p] for p in pooled[:, 0]])
     val_data = pooled[assign == cv_fold]
     train_data = pooled[assign != cv_fold]
+    if pooled_v is not None:
+        val_values = pooled_v[assign == cv_fold]
+        train_values = pooled_v[assign != cv_fold]
     print(f"[train] CV fold {cv_fold + 1}/{cv_folds}: pooled {len(in_pool):,} subjects -> "
           f"train {len(np.unique(train_data[:, 0])):,} / "
           f"val {len(np.unique(val_data[:, 0])):,}")
@@ -325,7 +381,8 @@ best_val_loss = 1e9
 best_iter = 0
 
 # ------------------------------------------------------------------ model
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
+model_args = dict(ad_dx_token=(ad_dx_token if mask_missing_ad_label else 0),
+                  n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=vocab_size, dropout=dropout,
                   token_dropout=token_dropout, t_min=t_min, mask_ties=mask_ties,
                   ignore_tokens=list(ignore_tokens), time_head=time_head, dt_target=dt_target)
@@ -344,6 +401,11 @@ elif init_from == 'resume':
     model_args['time_head'] = ck.get('time_head', False)
     # not architectural, but it changes the objective: a resume must not silently switch it
     model_args['dt_target'] = ck.get('dt_target', 'gather')
+    # same reasoning for the missing-AD-label mask: 0 (off) for a checkpoint predating it
+    model_args['ad_dx_token'] = ck.get('ad_dx_token', 0)
+    if bool(model_args['ad_dx_token']) != bool(mask_missing_ad_label and ad_dx_token):
+        print(f"[train] NOTE: resume keeps the checkpoint's missing-AD-label setting "
+              f"(ad_dx_token={model_args['ad_dx_token']}), overriding this config.")
     if checkpoint.get('vocab_sig') and vocab_sig and checkpoint['vocab_sig'] != vocab_sig:
         sys.exit(f"[train] refusing to resume: checkpoint was trained against vocabulary "
                  f"{checkpoint['vocab_sig']}, this dataset's labels.csv is {vocab_sig}.")
@@ -376,11 +438,99 @@ if compile:
     model = torch.compile(model)
 
 
-def _batch(data, p2i, ix, train=True):
-    return get_batch(ix, data, p2i, block_size=block_size, device=device, select='left',
-                     padding='random' if train else 'regular',
-                     augment_tokens=augment_tokens if train else None,
-                     no_event_token_rate=no_event_token_rate, cut_batch=True)
+# ------------------------------------------------------------------ the rollout probe
+# Built once: it selects its prefixes and computes the observed death CIF on those same
+# subjects, so the ratio it reports later needs no external reference. It saves and restores
+# the RNG state of every device it touches, so a probe-on run follows exactly the trajectory
+# a probe-off run would -- asserted by tests/test_pipeline.py:test_rollout_probe.
+probe = None
+if rollout_probe:
+    from radc_delphi.rollout_probe import RolloutProbe        # noqa: E402
+    probe = RolloutProbe(val_data, data_dir, model_args['ignore_tokens'],
+                         landmark_age=rollout_probe_age,
+                         n_subjects=rollout_probe_subjects,
+                         n_mc=rollout_probe_n_mc,
+                         max_new_tokens=rollout_probe_max_new,
+                         until_age=rollout_probe_until_age,
+                         seed=rollout_probe_seed, device=device)
+    print(probe.describe(), flush=True)
+    if not probe.prefixes:
+        sys.exit("[train] rollout_probe is on but no prefix survived selection; "
+                 f"check rollout_probe_age={rollout_probe_age} against this split.")
+
+
+# ------------------------------------------------------------------ the missing-AD-label mask
+# RADC leaves age_first_ad_dx empty for anyone already demented at the baseline cycle, so those
+# subjects carry no AD token and are indistinguishable, in the event stream, from people who
+# genuinely never converted. Trained as negatives they teach the model that MMSE 15-23 is
+# compatible with being AD-free. The repair is at the LABEL, not at the features: model.forward
+# blanks the AD column out of THEIR cross-entropy, so every other token they carry -- cognition,
+# stroke, medication, death -- goes on training the model exactly as before and nobody is
+# dropped from the cohort. A static "impaired at baseline" token cannot do this job: its MMSE
+# half is already the baseline MMSE bin and its ad_rx half leaks the outcome (see the note in
+# tokenizer.py where the flag is computed).
+#
+# Read AFTER the model is built, from model_args, because a resume takes the checkpoint's
+# setting rather than this config's.
+_ad_dx_token = model_args['ad_dx_token']
+train_ad_missing = val_ad_missing = None
+if _ad_dx_token:
+    _subj_csv = os.path.join(data_dir, 'subjects.csv')
+    if not os.path.exists(_subj_csv):
+        sys.exit(f"[train] mask_missing_ad_label=True needs {_subj_csv} (written by "
+                 f"build_dataset.py). Rebuild the dataset, or set mask_missing_ad_label=False.")
+    import pandas as _pd
+    _sub = _pd.read_csv(_subj_csv)
+    if 'ad_label_missing' not in _sub.columns:
+        sys.exit(f"[train] {_subj_csv} predates the ad_label_missing column. Rebuild with "
+                 f"`python -m radc_delphi.build_dataset --seed {seed}`, or set "
+                 f"mask_missing_ad_label=False.")
+    _missing_pids = _sub.loc[_sub['ad_label_missing'].astype(bool), 'projid'].to_numpy()
+
+    def _row_flags(data, p2i):
+        """(len(p2i),) bool -- does the subject occupying each p2i row carry no AD label?"""
+        return torch.from_numpy(np.isin(np.asarray(data[p2i[:, 0], 0]), _missing_pids))
+
+    train_ad_missing = _row_flags(train_data, train_p2i)
+    val_ad_missing = _row_flags(val_data, val_p2i)
+
+    # The mask writes -inf into the AD column, so a flagged subject who DID carry an AD token
+    # would be scored -log(0) = inf. By construction none can -- ad_label_missing requires an
+    # empty age_first_ad_dx -- but subjects.csv and the .bin are written by different code
+    # paths and can be mixed by hand, so this is checked once at startup instead of per batch.
+    for _nm, _d, _p, _m in (('train', train_data, train_p2i, train_ad_missing),
+                            ('val', val_data, val_p2i, val_ad_missing)):
+        for _k in np.flatnonzero(_m.numpy()):
+            _s, _n = int(_p[_k, 0]), int(_p[_k, 1])
+            if (np.asarray(_d[_s:_s + _n, 2]) == _ad_dx_token - 1).any():   # DISK space
+                sys.exit(f"[train] {_nm}: subject {int(_d[_s, 0])} is flagged ad_label_missing "
+                         f"but carries the AD token. subjects.csv and the .bin disagree -- "
+                         f"rebuild the dataset.")
+    print(f"[train] missing-AD-label mask: {int(train_ad_missing.sum())} train / "
+          f"{int(val_ad_missing.sum())} val subjects have the AD column (model id "
+          f"{_ad_dx_token}) blanked from their cross-entropy")
+else:
+    print("[train] missing-AD-label mask OFF: prevalent-dementia subjects train as AD negatives")
+
+
+def _batch(data, p2i, ix, train=True, ad_missing=None, values=None):
+    """(x, a, y, b, m, soft_in, soft_target).
+
+    `m` is the (batch,) bool row mask for model.forward, or None.
+    `soft_in` / `soft_target` are (weights, ids) pairs or None when soft_labels is off.
+    """
+    out = get_batch(ix, data, p2i, block_size=block_size, device=device, select='left',
+                    padding='random' if train else 'regular',
+                    augment_tokens=augment_tokens if train else None,
+                    no_event_token_rate=no_event_token_rate, cut_batch=True,
+                    values=values if soft_labels else None,
+                    binner=binner if soft_labels else None)
+    m = None if ad_missing is None else ad_missing[ix].to(device)
+    if soft_labels:
+        x, a, y, b, sin, stg = out
+        return x, a, y, b, m, sin, stg
+    x, a, y, b = out
+    return x, a, y, b, m, None, None
 
 
 def _rand_ix(p2i):
@@ -398,7 +548,9 @@ def estimate_loss():
     """
     out = {}
     model.eval()
-    for split, data, p2i in (('train', train_data, train_p2i), ('val', val_data, val_p2i)):
+    for split, data, p2i, am, vals in (
+            ('train', train_data, train_p2i, train_ad_missing, train_values),
+            ('val', val_data, val_p2i, val_ad_missing, val_values)):
         if eval_full and split == 'val':
             chunks = [torch.arange(i, min(i + batch_size, len(p2i)))
                       for i in range(0, len(p2i), batch_size)]
@@ -407,9 +559,11 @@ def estimate_loss():
         losses = torch.zeros(len(chunks), 2)
         weights = torch.zeros(len(chunks))
         for k, ix in enumerate(chunks):
-            X, A, Y, B = _batch(data, p2i, ix, train=False)
+            X, A, Y, B, M, SI, ST = _batch(data, p2i, ix, train=False, ad_missing=am,
+                                           values=vals)
             with ctx:
-                _, loss, _ = model(X, A, Y, B, validation_loss_mode=True)
+                _, loss, _ = model(X, A, Y, B, validation_loss_mode=True, ad_label_missing=M,
+                                   soft_in=SI, soft_target=ST)
             losses[k] = torch.stack([loss['loss_ce'], loss['loss_dt']])
             weights[k] = len(ix)          # the last full-pass chunk is short
         w = (weights / weights.sum()).unsqueeze(1)
@@ -449,7 +603,8 @@ if wandb_log:
 # Re-seed by iter_num so a resumed run does not replay the batch stream a fresh run saw from 0
 # (the model init above already consumed the base seed).
 torch.manual_seed(seed + iter_num)
-X, A, Y, B = _batch(train_data, train_p2i, _rand_ix(train_p2i))
+X, A, Y, B, M, SI, ST = _batch(train_data, train_p2i, _rand_ix(train_p2i),
+                               ad_missing=train_ad_missing, values=train_values)
 t0 = time.time()
 stale_evals = 0
 history = []
@@ -475,6 +630,17 @@ while True:
                         'val/selected': val_loss})
         history.append({'iter': iter_num, 'train': tr_loss, 'val': val_total,
                         'val_ce': val_ce, 'val_dt': val_dt, 'selected': val_loss})
+
+        if probe is not None:
+            pm = probe.run(model)
+            metrics.update(pm)
+            history[-1].update(pm)
+            r85 = pm.get('probe/death_cif_ratio_85', float('nan'))
+            print(f"  probe: p_death_next {pm['probe/p_death_next']:.4f}  "
+                  f"never-dies {100 * pm['probe/frac_no_death']:.1f}%  "
+                  f"end-age {pm['probe/median_end_age']:.1f}  "
+                  f"deathCIF85 {pm.get('probe/death_cif_85', float('nan')):.3f} "
+                  f"({r85:.2f}x observed)", flush=True)
 
         # GUARD 2: never let a non-finite eval touch a checkpoint. The best-val save is already
         # NaN-safe (nan < best is False), but an unconditional periodic save is not -- that is
@@ -503,8 +669,10 @@ while True:
 
     for micro_step in range(gradient_accumulation_steps):
         with ctx:
-            logits, loss_terms, _ = model(X, A, Y, B)
-        X, A, Y, B = _batch(train_data, train_p2i, _rand_ix(train_p2i))   # prefetch
+            logits, loss_terms, _ = model(X, A, Y, B, ad_label_missing=M,
+                                          soft_in=SI, soft_target=ST)
+        X, A, Y, B, M, SI, ST = _batch(train_data, train_p2i, _rand_ix(train_p2i),  # prefetch
+                                       ad_missing=train_ad_missing, values=train_values)
         loss = (loss_terms['loss_ce'] + loss_terms['loss_dt']) / gradient_accumulation_steps
         # GUARD 1: abort the instant the loss is non-finite, BEFORE backward() can write NaN
         # into the weights. Naming the term and the max logit makes the cause obvious.

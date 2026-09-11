@@ -113,12 +113,18 @@ def split_by_subject(pids, strata, seed=42, ratio=RATIO):
     return res
 
 
-def write_splits(events, assignment, out_dir, labels, verbose=True):
+def write_splits(events, assignment, out_dir, labels, values=None, verbose=True):
     """Write {train,val,test}.bin + labels.csv under out_dir.
 
     `events` is the uint32 (pid, age_days, disk_token) array, already sorted so that subjects
     are contiguous and ages ascending; boolean row selection preserves that order, so the .bin
     files inherit both properties and get_p2i works on them unchanged.
+
+    `values` is the parallel float32 array of RAW scale readings (NaN elsewhere), written to
+    <split>_values.bin. It is a SEPARATE file rather than a fourth column so that every
+    existing reader of the uint32 (N, 3) layout keeps working untouched, and so a build made
+    before soft labels existed still loads -- get_batch treats a missing values file as
+    "hard tokens only".
     """
     import os
     os.makedirs(out_dir, exist_ok=True)
@@ -127,6 +133,9 @@ def write_splits(events, assignment, out_dir, labels, verbose=True):
         keep = np.isin(events[:, 0], assignment[name])
         part = events[keep]
         part.tofile(os.path.join(out_dir, f"{name}.bin"))
+        if values is not None:
+            values[keep].astype(np.float32).tofile(
+                os.path.join(out_dir, f"{name}_values.bin"))
         stats[name] = (part.shape[0], len(np.unique(part[:, 0])) if len(part) else 0)
         if verbose:
             print(f"  {name:<5} {stats[name][1]:>6,} subjects  {stats[name][0]:>9,} events")

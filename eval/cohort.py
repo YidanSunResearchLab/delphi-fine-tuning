@@ -45,7 +45,14 @@ DAYS_PER_YEAR = 365.25
 
 
 def baseline_impaired(radc_dir):
-    """Series indexed by projid: was this subject already impaired at fu_year 0?"""
+    """Series indexed by projid: was this subject already impaired at fu_year 0?
+
+    LEGACY PATH. The builder now writes `baseline_impaired` straight into subjects.csv from
+    tokenizer.baseline_impairment, which is the one definition; load_subjects prefers that
+    column and only falls back here for a directory built before it existed. Keep the two
+    bodies identical -- a silent divergence between the training mask and this exclusion is
+    exactly the failure this consolidation exists to prevent.
+    """
     lg = pd.read_excel(os.path.join(radc_dir, "longitudinal_data_gk.xlsx"))
     b = lg[lg["fu_year"] == 0].set_index("projid")
     mmse = pd.to_numeric(b.get("cts_estmmse30"), errors="coerce")
@@ -57,7 +64,10 @@ def load_subjects(data_dir, radc_dir=None, split=None):
     """subjects.csv plus the derived cohort flags and competing-risk outcome.
 
     Adds:
-      baseline_impaired  bool
+      baseline_impaired  bool -- from subjects.csv if present, else recomputed
+      ad_label_missing   bool -- baseline_impaired AND no age_first_ad_dx: the AD label is
+                         absent by codebook rule, not negative. train.py masks the AD column
+                         out of their cross-entropy; they stay excluded from AD scoring here.
       in_training        >= 2 visits
       in_eval            in_training and not baseline_impaired
       event_type         1 AD / 2 death without AD / 0 censored alive
@@ -69,11 +79,20 @@ def load_subjects(data_dir, radc_dir=None, split=None):
     if split:
         sub = sub[sub["split"] == split]
 
-    if radc_dir:
+    if "baseline_impaired" in sub.columns:
+        # written by the builder -- the authoritative copy, and it costs no Excel read
+        sub["baseline_impaired"] = sub["baseline_impaired"].fillna(False).astype(bool)
+    elif radc_dir:
         imp = baseline_impaired(radc_dir)
         sub["baseline_impaired"] = imp.reindex(sub.index).fillna(False).astype(bool)
     else:
         sub["baseline_impaired"] = False
+
+    # Whose AD label is MISSING rather than negative -- the subset train.py masks out of the
+    # cross-entropy. Derived rather than required, so a pre-existing subjects.csv still loads.
+    if "ad_label_missing" not in sub.columns:
+        sub["ad_label_missing"] = sub["baseline_impaired"] & ~sub["ever_ad"].astype(bool)
+    sub["ad_label_missing"] = sub["ad_label_missing"].fillna(False).astype(bool)
 
     sub["in_training"] = sub["n_visits"] >= 2
     sub["in_eval"] = sub["in_training"] & ~sub["baseline_impaired"]

@@ -8,21 +8,29 @@
 # before changing any of them.
 #
 # THE DATASET AS BUILT (seed 42):
-#   4,428 subjects, 74,900 events, 16.9 per subject (min 7, median 16, p95 27, max 42)
-#   1,164 AD converters (26.3%), 2,745 deaths (62.0%), vocabulary 50 tokens
-#   train 3,101 subjects / 52,576 events | val 443 / 7,470 | test 884 / 14,854
+#   4,428 subjects, 77,847 events, 17.6 per subject (min 7, median 17, p95 28, max 43)
+#   1,164 AD converters (26.3%), 2,745 deaths (62.0%), vocabulary 53 tokens
+#   train 3,101 subjects / 54,585 events | val 443 / 7,781 | test 884 / 15,481
+#
+# MMSE CARRIES SEVEN LEVELS, NOT FOUR, and the three extra cuts are all above 26. 73.6% of
+# visits sat in the old 27-30 bin, so the model was blind to changes inside three quarters of
+# the data -- measured: zero emitted tokens for any move within it, against 3,993 once split.
+# The bottom of the scale is deliberately NOT split: below 18 the measured noise is 2.4 points
+# against 0.6 at the ceiling, and the training set holds ~840 readings there, so finer bins
+# would buy neither resolution nor learnability. Edges sit at HALF-integers above 26 because
+# 98.4% of readings are integers and an edge on a mode starves the level beside it.
 # train.py puts the checkout root on sys.path before exec'ing this file, so the package is
 # importable here. Note there is no __file__ inside an exec'd config -- do not reach for it.
 from radc_delphi import vocab as _V
 
-dataset = "radc-s42"
-out_dir = "out-radc-base-s42"
+dataset = "radc-v2-s42"
+out_dir = "out-radc-v2-s42"
 
 # ---------------------------------------------------------------- vocabulary
 # Taken from the vocabulary module rather than retyped. train.py additionally cross-checks
 # vocab_size against the row count of the split's own labels.csv and refuses to start on a
 # mismatch, because a stale value here mis-indexes every logit and still trains happily.
-vocab_size = _V.VOCAB_SIZE                      # 50
+vocab_size = _V.VOCAB_SIZE                      # 53
 
 # Padding plus the 21 static ids (2-22: sex, APOE, education, study, smoking, alcohol).
 #
@@ -39,7 +47,33 @@ ignore_tokens = _V.IGNORE_TOKENS
 
 # The cohort filter counts transitions on MMSE. RADC has no per-visit clinical diagnosis to use
 # instead -- cogdx and dcfdx are last-visit only, and both leak the outcome (AUC 0.888, 0.838).
-stage_tokens_disk = _V.STAGE_TOKENS_DISK        # DISK ids 22-25
+stage_tokens_disk = _V.STAGE_TOKENS_DISK
+
+# ---------------------------------------------------------------- v2: the timing target
+# WHICH tokens the waiting-time objective skips. Not the same set as ignore_tokens, and in the
+# delivered build the two were conflated: 41.3% of dt targets pointed at a synthetic No-event
+# marker, which compressed the target mean from 1.65 y to 0.89 y and turned 8.5% of censored
+# positions into fabricated short answers. generate() masks the marker and can never emit one,
+# so the intensity must be trained on the gap it will actually be asked to reproduce.
+dt_ignore_tokens = _V.DT_IGNORE_TOKENS
+
+# ---------------------------------------------------------------- v2: soft labels
+# A reading is represented as the POSTERIOR over bins given the measurement noise, not as a
+# hard one-hot -- on the input embedding (a weighted mixture of the level embeddings, same
+# position, same vector) and on the cross-entropy target (-sum_k w_k log p_k).
+#
+# Two defects it removes at once. (a) The edge discontinuity: MMSE 17.9 and 18.1 differ by a
+# tenth of a point, far below the 2.4-point measurement SD there, yet hard binning put them in
+# different tokens 1.14 apart in embedding space; soft weights put them 0.06 apart. (b) The
+# within-bin blindness: 18.1 and 23.5 were the SAME token, distance exactly 0.
+#
+# It also replaces the hysteresis filter outright. Both existed to stop measurement noise from
+# producing spurious transitions, but hysteresis was stateful and biased -- it disagreed with
+# the raw bin on 6.22% of MMSE visits and silently deleted real recoveries -- while the
+# stateless TV gate in the tokenizer emits 0.0% sub-sigma transitions against 11.8% before.
+#
+# Verified degenerate: forcing the weights to one-hot reproduces the hard-label loss to 0.0e+00.
+soft_labels = True
 
 # ---------------------------------------------------------------- the missing AD label
 # 287 subjects (6.5%) were already demented at the baseline cycle, and the codebook is explicit
@@ -197,4 +231,4 @@ device = "cuda"
 dtype = "float32"
 
 wandb_project = "ad-projection-radc"
-wandb_run_name = "radc-base-L4H4E64-s42"
+wandb_run_name = "radc-v2-softbins-s42"

@@ -232,6 +232,25 @@ class DelphiConfig:
     # Default is "gather" on purpose: it keeps every delivered checkpoint bit-identical and
     # keeps the capacity sweep's numbers comparable. Flip it per-run to measure the fix.
     dt_target: str = "gather"
+    # WHICH tokens the time-to-event target skips. None falls back to `ignore_tokens`, which is
+    # the DELIVERED behaviour and is a bug: the two sets answer different questions.
+    # `ignore_tokens` says "not a cross-entropy target" and must NOT contain No-event, because
+    # the synthetic markers are the only negative evidence the model ever sees. This set says
+    # "does not count as the next event", and No-event MUST be in it, because generate() masks
+    # the marker and can never emit one -- so the intensity has to be trained on the gap it
+    # will actually be asked to reproduce. Measured on the delivered build, 41.3% of dt targets
+    # pointed at a synthetic marker, compressing the target mean from 1.65 y to 0.89 y and
+    # turning 8.5% of censored positions into fabricated short answers.
+    dt_ignore_tokens: list = None
+    # MODEL-space id of the AD-diagnosis token, or 0 to disable the missing-label mask.
+    #
+    # RADC records no age_first_ad_dx for participants who were already demented at the
+    # baseline cycle, so those subjects carry no AD token and the stream cannot tell them
+    # apart from genuine non-converters. Passing `ad_label_missing` to forward() blanks this
+    # column out of their cross-entropy, which asks "which of the OTHER tokens comes next"
+    # instead of asserting that the diagnosis did not happen. 0 (Padding) is the off switch
+    # because Padding can never be a real endpoint; no id is hard-coded here or in train.py.
+    ad_dx_token: int = 0
 
 
 def load_checkpoint(ckpt_path, device="cpu", expect_vocab_size=None,
@@ -386,13 +405,22 @@ class Delphi(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, age, targets=None, targets_age=None, validation_loss_mode=False):
+    def forward(self, idx, age, targets=None, targets_age=None, validation_loss_mode=False,
+                ad_label_missing=None, soft_in=None, soft_target=None):
         device = idx.device
         b, t = idx.size()
         #assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         # pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        # Token embedding. With soft labels this is a weighted MIXTURE of the levels of one
+        # ordinal scale rather than a single lookup -- w @ W[level_ids] instead of onehot @ W.
+        # Same position, same vector, same sequence length; only the weights differ. Where w is
+        # one-hot (every non-scale token) it reduces to the lookup bit for bit.
+        if soft_in is not None:
+            from .softlabel import mix_embeddings
+            tok_emb = mix_embeddings(self.transformer.wte, soft_in[0], soft_in[1])
+        else:
+            tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         #pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
         age_emb = self.transformer.wae(age.unsqueeze(-1)) # age embeddings of shape (b, t, n_embd)
         #age_emb = self.transformer.mlp(age_emb)
@@ -454,7 +482,27 @@ class Delphi(nn.Module):
             #age_min = age.gather(1,(((idx >=4) * (idx <=12)) + 0).argmax(1)[:,None])
             #logits[...,-1][age <= age_min] = -100. #-float('Inf') ## Death can only occur after age_min
             
-            loss_ce = F.cross_entropy(logits.reshape(-1, logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
+            # ---- subjects whose AD label is MISSING, not negative -----------------------
+            # `ad_label_missing` is a (b,) bool over the ROWS of this batch. Blanking the AD
+            # column renormalises the softmax over the remaining ids, so no gradient pushes
+            # P(AD) down at any of their positions -- "unknown", not "did not happen".
+            #
+            # ON A COPY, and both reasons matter. (1) The returned `logits` feed train.py's
+            # guards 1 and 4, which report max|logit|; an in-place -inf makes that read inf
+            # from the first iteration and blinds the blow-up detector. (2) `lse` below must
+            # see the UNMASKED logits: under time_head=False the intensity is logsumexp of
+            # this same tensor, and deflating it by the AD mass would quietly retarget the
+            # timing head on these rows. The label is a claim about WHICH token, not WHEN.
+            #
+            # A masked row can never have AD as a target -- these subjects have no AD token by
+            # construction -- but if one ever did, CE would be -log(0). train.py asserts that
+            # at startup, once, rather than paying for the check on every batch.
+            loss_logits = logits
+            if ad_label_missing is not None and self.config.ad_dx_token:
+                loss_logits = logits.clone()
+                loss_logits[ad_label_missing, :, self.config.ad_dx_token] = -torch.inf
+
+            loss_ce = F.cross_entropy(loss_logits.reshape(-1, loss_logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
             
             # time to next event loss, padding masked
             #
@@ -488,7 +536,8 @@ class Delphi(nn.Module):
             if self.config.dt_target == "next_visit":
                 dt, dt_ok = next_visit_dt(idx, age)
             elif self.config.dt_target == "next_event":
-                dt, dt_ok = next_visit_dt(idx, age, ignore=self.config.ignore_tokens)
+                dt_ign = self.config.dt_ignore_tokens or self.config.ignore_tokens
+                dt, dt_ok = next_visit_dt(idx, age, ignore=dt_ign)
             elif self.config.dt_target != "gather":
                 raise ValueError(f"dt_target must be 'gather', 'next_visit' or 'next_event', "
                                  f"got {self.config.dt_target!r}")

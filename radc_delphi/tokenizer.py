@@ -84,12 +84,9 @@ PLAUSIBLE = {
     "bmi": (12.0, 70.0),
 }
 
-# (interior edges, per-edge recovery margin, token names low -> high on the raw value)
-SCALE_SPEC = {
-    "cts_estmmse30": ([18.0, 24.0, 27.0], [2.0, 2.0, 2.0], V.SCALES["MMSE"]),
-    "cogn_global": ([-2.0, -1.0, -0.3, 0.2, 0.8], [0.2] * 5, V.SCALES["COG"]),
-    "bmi": ([20.0, 30.0], [1.0, 1.0], V.SCALES["BMI"]),
-}
+# raw column -> scale name. Edges, measurement sigma and the emission threshold all live in
+# radc_delphi.vocab so the tokenizer, the batcher and the model cannot drift apart.
+SCALE_COLS = {"cts_estmmse30": "MMSE", "cogn_global": "COG", "bmi": "BMI"}
 
 CUM_COLS = {
     "hypertension_cum": V.ID["Hypertension, history"],
@@ -214,36 +211,72 @@ def load(radc_dir):
     return xs.set_index("projid"), lg, cl.set_index("projid")
 
 
-# ------------------------------------------------------------------ the hysteresis machine
-def hysteresis_states(values, edges, margins):
-    """Bin a sequence with an asymmetric recovery margin.
+# ------------------------------------------------------------------ the missing AD label
+def baseline_impairment(lg):
+    """Impaired at the baseline cycle, per subject: (MMSE < 24) OR (already on an AD drug).
 
-    Moving to a WORSE bin (a lower raw value) happens as soon as the value falls below the
-    edge. Moving to a BETTER bin (a higher raw value) requires clearing the edge by
-    `margins[k]`. The state is therefore sticky downward-only, which is what removes the
-    round-trip churn without delaying a real decline.
+    THE SINGLE DEFINITION, and it lives here so there is only one. eval/cohort.py used to
+    recompute this from the raw file for its own exclusion rule; it now reads the column this
+    writes into subjects.csv, so the training-side mask and the evaluation-side exclusion
+    cannot drift apart.
 
-    `values` must be in visit order. Returns an int array of bin indices, same length.
+    Both terms are read at fu_year == 0 and nowhere else, and that restriction is the whole
+    reason ad_rx is admissible at all -- vocab.py bans the drug from the VOCABULARY because a
+    prescription at a pre-diagnosis follow-up visit anticipates the diagnosis (4.7% -> 31.2%
+    3-year risk at a normal MMSE). At baseline it can only mark prevalence. Note this flag is
+    never handed to the model as a feature; it only decides whose AD label is trustworthy.
     """
-    edges = np.asarray(edges, dtype=float)
-    margins = np.asarray(margins, dtype=float)
-    out = np.empty(len(values), dtype=int)
-    state = int(np.searchsorted(edges, values[0], side="right"))
-    out[0] = state
-    for i in range(1, len(values)):
-        v = values[i]
-        while state > 0 and v < edges[state - 1]:        # decline: cross immediately
-            state -= 1
-        while state < len(edges) and v >= edges[state] + margins[state]:   # recovery: clear it
-            state += 1
-        out[i] = state
+    b = lg[lg["fu_year"] == 0].set_index("projid")
+    mmse = pd.to_numeric(b.get("cts_estmmse30"), errors="coerce")
+    adrx = pd.to_numeric(b.get("ad_rx"), errors="coerce")
+    return ((mmse < 24) | (adrx == 1)).fillna(False)
+
+
+# ------------------------------------------------------------------ soft emission
+def soft_emissions(values, scale):
+    """Which visits of an ordinal scale emit a token, and which level each lands in.
+
+    REPLACES the asymmetric-hysteresis state machine. Both exist to stop measurement noise
+    from filling the stream with spurious transitions, but they answer it differently:
+
+      hysteresis  a STATEFUL filter -- "I am in bin 1, so I need to reach edge + 2.0 to leave".
+                  Path-dependent, and biased by construction: it delays recoveries. Measured on
+                  the delivered build, the emitted state disagreed with the raw bin on 6.22% of
+                  MMSE visits, and a real 23.0 -> 25.9 rebound emitted nothing at all.
+
+      TV gate     STATELESS. Each visit maps to w(v) = P(true value in each bin | observed v,
+                  measurement noise sigma). A token is emitted when the total-variation
+                  distance from the last emitted w exceeds a threshold. Because w is scaled by
+                  sigma, a change smaller than the instrument's own noise cannot cross the gate:
+                  measured 0.0% of emissions correspond to a sub-sigma change, against 11.8%
+                  under hard binning, while emitting 3,993 tokens inside the MMSE 27-30 ceiling
+                  where the old scheme emitted none.
+
+    THE STORED LEVEL IS THE HARD BIN OF THE OBSERVATION, not argmax(w). The two answer
+    different questions -- the token records "this reading fell in bin k", the weights record
+    "and here is how sure we are" -- and using argmax makes the stored token depend on sigma
+    in a way that is both confusing and, where sigma exceeds the bin width, wrong: a level
+    narrower than the measurement noise can never win an argmax against a wider neighbour,
+    which is how an earlier edge choice produced a level holding 4 tokens in the whole cohort.
+
+    Returns a list of (index into `values`, level index, raw value).
+    """
+    tv = V.SCALE_TV_THRESHOLD[scale]
+    edges = np.asarray(V.SCALE_EDGES[scale], dtype=float)
+    out, prev = [], None
+    for i, v in enumerate(values):
+        v = float(v)
+        w = V.soft_weights(scale, v)
+        if prev is None or 0.5 * np.abs(w - prev).sum() > tv:
+            out.append((i, int(np.searchsorted(edges, v, side="right")), v))
+            prev = w
     return out
 
 
 # ------------------------------------------------------------------ the tokenizer
 def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FRACTION,
              verbose=True):
-    """Return (events, subjects, report).
+    """Return (events, values, subjects, report).
 
     emit_ad_rx: OFF by default and this is a leakage decision, not a coverage one. Among
     pre-diagnosis visits at a normal MMSE of 27-30, ad_rx == 1 raises P(AD dx within 3 y) from
@@ -276,6 +309,7 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
     age_death_90p = cl["age_death"].astype(str).str.strip().eq("90+")
 
     events = []                      # (projid, age_days, model_id)
+    values = []                      # raw scale value, NaN for everything else
     subj_rows = []
     counts = {n: 0 for n in V.NAMES}
     n_dx_outside_grid = 0
@@ -302,6 +336,9 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
             return abl_days + 365 * int(fu)
 
         ev = []
+        def add(age_days, name, value=float('nan')):
+            ev.append((age_days, name, value))
+
 
         # ---- statics, one day before baseline -----------------------------------------
         # The minus one day is load-bearing, not cosmetic. model.py's mask_ties blocks a query
@@ -311,17 +348,17 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
         # permanently attendable, and it also avoids the ~79-year gap that age-0 placement
         # would put at the head of every sequence.
         a0 = abl_days - 1
-        ev.append((a0, "Sex: male" if r.msex == 1 else "Sex: female"))
-        ev.append((a0, "APOE unknown" if pd.isna(r.apoe_genotype)
-                   else APOE_MAP[int(r.apoe_genotype)]))
-        ev.append((a0, "Education <=12y" if r.educ <= 12 else
-                   ("Education 13-16y" if r.educ <= 16 else "Education >=17y")))
-        ev.append((a0, STUDY_MAP[r.study]))
-        ev.append((a0, "Smoking: unknown" if pd.isna(r.smoking_bl)
-                   else SMOKING_MAP[int(r.smoking_bl)]))
-        ev.append((a0, "Alcohol: unknown" if pd.isna(r.ldai_bl) else
+        add(a0, "Sex: male" if r.msex == 1 else "Sex: female")
+        add(a0, "APOE unknown" if pd.isna(r.apoe_genotype)
+            else APOE_MAP[int(r.apoe_genotype)])
+        add(a0, "Education <=12y" if r.educ <= 12 else
+                   ("Education 13-16y" if r.educ <= 16 else "Education >=17y"))
+        add(a0, STUDY_MAP[r.study])
+        add(a0, "Smoking: unknown" if pd.isna(r.smoking_bl)
+            else SMOKING_MAP[int(r.smoking_bl)])
+        add(a0, "Alcohol: unknown" if pd.isna(r.ldai_bl) else
                    ("Alcohol: none (<1 drink/month)" if r.ldai_bl == 0 else
-                    ("Alcohol: light" if r.ldai_bl <= 1 else "Alcohol: heavy"))))
+                    ("Alcohol: light" if r.ldai_bl <= 1 else "Alcohol: heavy")))
 
         # ---- the planted canary, with the statics ---------------------------------------
         # Placed at a0, not at age_bl: mask_ties blocks a token from attending to anything
@@ -331,26 +368,24 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
         # the oracle -- the same shape as the autopsy-availability leak it is modelled on.
         if canary and is_canary_subject(pid, canary_fraction) \
                 and pd.notna(r.age_first_ad_dx):
-            ev.append((a0, CANARY_NAME))
+            add(a0, CANARY_NAME)
 
-        # ---- ordinal scales, hysteresis keep-transitions, one run per scale ----------------
-        for col, (edges, margins, ids) in SCALE_SPEC.items():
-            s = g[["fu_year", col]].dropna()
-            if s.empty:
+        # ---- ordinal scales: soft weights + TV gate, one run per scale --------------------
+        for col, scale in SCALE_COLS.items():
+            sc = g[["fu_year", col]].dropna()
+            if sc.empty:
                 continue
-            st = hysteresis_states(s[col].to_numpy(float), edges, margins)
-            fy = s["fu_year"].to_numpy()
-            ev.append((grid(fy[0]), V.NAMES[ids[st[0]]]))
-            for i in range(1, len(st)):
-                if st[i] != st[i - 1]:
-                    ev.append((grid(fy[i]), V.NAMES[ids[st[i]]]))
+            ids = V.SCALES[scale]
+            fy = sc["fu_year"].to_numpy()
+            for i, lvl, raw in soft_emissions(sc[col].to_numpy(float), scale):
+                add(grid(fy[i]), V.NAMES[ids[lvl]], raw)
 
         # ---- monotone cumulative histories, keep-first --------------------------------
         for col, tok in CUM_COLS.items():
             s = g[["fu_year", col]].dropna()
             hit = s[s[col] == 1]
             if len(hit):
-                ev.append((grid(hit["fu_year"].iloc[0]), V.NAMES[tok]))
+                add(grid(hit["fu_year"].iloc[0]), V.NAMES[tok])
 
         # ---- graded per-visit judgements, emitted on every WORSENING step ---------------
         for col, (tok_poss, tok_prob) in GRADED_COLS.items():
@@ -363,7 +398,7 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
             prev = 0
             for i in range(len(sev)):
                 if sev[i] > prev:
-                    ev.append((grid(fy[i]), V.NAMES[tok_prob if sev[i] == 2 else tok_poss]))
+                    add(grid(fy[i]), V.NAMES[tok_prob if sev[i] == 2 else tok_poss])
                 prev = sev[i]
 
         # ---- medications: every start, and only DURABLE stops --------------------------
@@ -377,16 +412,16 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
             v = s[col].to_numpy().astype(int)
             fy = s["fu_year"].to_numpy()
             if v[0] == 1:
-                ev.append((grid(fy[0]), V.NAMES[tok_start]))
+                add(grid(fy[0]), V.NAMES[tok_start])
             for i in range(1, len(v)):
                 if v[i] == 1 and v[i - 1] == 0:
-                    ev.append((grid(fy[i]), V.NAMES[tok_start]))
+                    add(grid(fy[i]), V.NAMES[tok_start])
                 elif v[i] == 0 and v[i - 1] == 1:
                     j = i
                     while j < len(v) and v[j] == 0:
                         j += 1
                     if (j - i) >= 2:
-                        ev.append((grid(fy[i]), V.NAMES[tok_stop]))
+                        add(grid(fy[i]), V.NAMES[tok_stop])
 
         # ---- the AD diagnosis, at its OWN recorded age --------------------------------
         # age_first_ad_dx is uncensored in the cross-sectional file (66.3-107.2 y), unlike the
@@ -397,7 +432,7 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
         ad_days = None
         if pd.notna(r.age_first_ad_dx):
             ad_days = int(round(r.age_first_ad_dx * DAYS_PER_YEAR))
-            ev.append((ad_days, "Alzheimer's dementia diagnosis"))
+            add(ad_days, "Alzheimer's dementia diagnosis")
 
         last_grid = grid(g["fu_year"].max())
         if ad_days is not None and (ad_days > last_grid + 365 or ad_days < abl_days):
@@ -424,13 +459,14 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
             # death must come strictly after every observation, including an off-grid diagnosis
             floor = max(last_grid, ad_days if ad_days is not None else -1) + 1
             death_days = max(death_days, floor)
-            ev.append((death_days, "Death"))
+            add(death_days, "Death")
 
         # Within a visit the diagnosis is ordered first, so that when mask_ties is off the
         # same-age scale tokens cannot be read as its cause.
         ev.sort(key=lambda t: (t[0], 0 if t[1] == "Alzheimer's dementia diagnosis" else 1))
-        for age_days, name in ev:
+        for age_days, name, value in ev:
             events.append((pid, age_days, V.ID[name]))
+            values.append(value)
             counts[name] += 1
 
         fu_max = float(g["fu_year"].max())
@@ -446,9 +482,40 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
         ))
 
     E = np.array(events, dtype=np.int64)
+    Vraw = np.array(values, dtype=np.float32)
     order = np.lexsort((E[:, 2], E[:, 1], E[:, 0]))       # subject, then age, then token
     E = E[order]
+    Vraw = Vraw[order]
     subjects = pd.DataFrame(subj_rows).set_index("projid")
+
+    # ---- whose AD label is MISSING rather than negative --------------------------------
+    # The codebook: age_first_ad_dx "is not available for participants that were demented at
+    # baseline cycle". So a prevalent case carries no AD token and is indistinguishable, in
+    # the event stream, from someone who genuinely never converted. Left alone the model is
+    # trained to withhold the diagnosis across their whole trajectory -- it is taught that
+    # MMSE 15-23 is compatible with being AD-free, on 287 subjects.
+    #
+    # WHY THIS IS NOT FIXED WITH A TOKEN. The obvious repair -- a static "impaired at
+    # baseline" marker -- cannot work, and both halves of the flag say so for different
+    # reasons. The MMSE < 24 half is EXACTLY the baseline MMSE bin the model already reads:
+    # the first visit always emits, at the modal bin of its own soft weights, and the MMSE
+    # edges start at 18 and 24, so "MMSE < 24 at baseline" is by construction the same
+    # information as a first token of `MMSE <18` or `MMSE 18-24`. The ad_rx half is not
+    # redundant, and that is worse: among subjects with baseline MMSE >= 24, ad_rx == 1 goes
+    # on to a recorded diagnosis 48.2% of the time against 26.1% (1.84x), so tokenizing it
+    # would import the leak vocab.py bans it for. Redundant or leaky, with nothing in between.
+    #
+    # It is a LABEL problem, so it is fixed at the label: train.py masks the AD column out of
+    # the cross-entropy for these subjects (see `mask_missing_ad_label`), which says "AD is
+    # unknown here" instead of "AD did not happen here". Their MMSE, stroke, medication and
+    # death tokens are untouched and go on training the model normally.
+    #
+    # The mask is deliberately NOT `baseline_impaired` alone: 113 impaired subjects do reach a
+    # recorded diagnosis, and those are real positives that must keep supervising the model.
+    imp = baseline_impairment(lg).reindex(subjects.index).fillna(False).to_numpy(bool)
+    subjects["baseline_impaired"] = imp
+    subjects["ad_label_missing"] = imp & ~subjects["ever_ad"].to_numpy(bool)
+
     if canary:
         # `canary` is the marked 5%; `canary_token` is the subset that actually carries the
         # oracle. The audit needs both: the unmarked-and-quiet contrast is what proves the
@@ -478,7 +545,9 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
               f"something upstream moved.")
     report = dict(n_events=len(E), n_subjects=n_subj, counts=counts,
                   events_per_subject=len(E) / n_subj, dx_outside_grid=n_dx_outside_grid,
-                  canary=bool(canary))
+                  canary=bool(canary),
+                  n_baseline_impaired=int(subjects["baseline_impaired"].sum()),
+                  n_ad_label_missing=int(subjects["ad_label_missing"].sum()))
     if canary:
         report["n_canary_subjects"] = int(subjects["canary"].sum())
         report["n_canary_tokens"] = int(subjects["canary_token"].sum())
@@ -498,10 +567,14 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
               f"{int((subjects.died == 1).sum()):,} "
               f"({100 * (subjects.died == 1).mean():.1f}%)")
         print(f"  diagnoses placed off the visit grid: {n_dx_outside_grid}")
+        print(f"  baseline-impaired {int(subjects.baseline_impaired.sum()):,} "
+              f"({100 * subjects.baseline_impaired.mean():.1f}%), of whom "
+              f"{int(subjects.ad_label_missing.sum()):,} carry NO AD label -- their AD column "
+              f"is masked out of the loss unless mask_missing_ad_label is off")
         print("\n  --- token counts ---")
         for i, n in enumerate(V.NAMES):
             if i < 2:
                 continue
             print(f"  {i:3d}  {n:<34s} {counts[n]:8,}")
 
-    return E, subjects, report
+    return E, Vraw, subjects, report
