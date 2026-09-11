@@ -502,7 +502,30 @@ class Delphi(nn.Module):
                 loss_logits = logits.clone()
                 loss_logits[ad_label_missing, :, self.config.ad_dx_token] = -torch.inf
 
-            loss_ce = F.cross_entropy(loss_logits.reshape(-1, loss_logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
+            if soft_target is not None:
+                # SOFT CROSS-ENTROPY: -sum_k w_k log p_k, where w is the posterior over the
+                # bins of one ordinal scale given the measurement noise. Reduces exactly to
+                # the hard call below wherever w is one-hot, which is every non-scale token.
+                #
+                # Reads `loss_logits`, NOT `logits`: the ad_label_missing blanking and
+                # validation_loss_mode's ignored columns both live there, and scoring the soft
+                # target against the unmasked tensor would silently undo both.
+                #
+                # The product is taken with torch.where rather than as `st * logp` because a
+                # blanked column carries logp = -inf, and 0 * -inf is NaN, not 0. Zero-weight
+                # columns must contribute nothing, not poison the sum.
+                from .softlabel import scatter_targets
+                V_ = loss_logits.size(-1)
+                st = scatter_targets(soft_target[0], soft_target[1], V_).reshape(-1, V_)
+                keep = torch.ones(V_, device=loss_logits.device, dtype=st.dtype)
+                keep[ignored_tokens] = 0.0
+                st = st * keep
+                st = st / st.sum(-1, keepdim=True).clamp(min=1e-8)
+                logp = F.log_softmax(loss_logits.reshape(-1, V_), dim=-1)
+                term = torch.where(st > 0, st * logp, torch.zeros_like(st))
+                loss_ce = -term[pass_tokens].sum(-1).mean()
+            else:
+                loss_ce = F.cross_entropy(loss_logits.reshape(-1, loss_logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
             
             # time to next event loss, padding masked
             #

@@ -196,6 +196,24 @@ def test_soft_labels():
     _, soft, _ = m(X, A, Y, B, soft_in=(Wx, Ix), soft_target=(Wy, Iy))
     check("soft path is finite",
           bool(torch.isfinite(soft["loss_ce"]) and torch.isfinite(soft["loss_dt"])))
+    # The soft TARGET must actually reach the loss. An earlier patch applied the soft input
+    # but silently failed to replace the cross-entropy -- str.replace is a no-op on a miss --
+    # so the degeneracy check passed while the target side was never exercised at all.
+    check("the soft target changes the loss",
+          abs(float(soft["loss_ce"]) - float(hard["loss_ce"])) > 1e-5,
+          f"{float(soft['loss_ce']):.6f} vs {float(hard['loss_ce']):.6f}")
+    # ...and it must read the MASKED logits, or ad_label_missing and validation_loss_mode are
+    # both silently undone on the soft path. Both paths must agree on whether a row is scorable.
+    am = torch.zeros(X.shape[0], dtype=torch.bool); am[:8] = True
+    cfg_ad = DelphiConfig(vocab_size=V.VOCAB_SIZE, block_size=64, n_layer=2, n_head=4,
+                          n_embd=32, ignore_tokens=list(V.IGNORE_TOKENS),
+                          dt_ignore_tokens=list(V.DT_IGNORE_TOKENS), t_min=365.25 / 12,
+                          ad_dx_token=V.AD_DX)
+    m_ad = Delphi(cfg_ad); m_ad.load_state_dict(m.state_dict())
+    _, h_am, _ = m_ad(X, A, Y, B, ad_label_missing=am)
+    _, s_am, _ = m_ad(X, A, Y, B, soft_in=(Wx, Ix), soft_target=(Wy, Iy), ad_label_missing=am)
+    check("hard and soft agree on the AD mask",
+          bool(torch.isfinite(h_am["loss_ce"]) == torch.isfinite(s_am["loss_ce"])))
 
     st = scatter_targets(Wy, Iy, V.VOCAB_SIZE)
     check("scattered target is a distribution",
