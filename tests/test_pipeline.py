@@ -60,6 +60,17 @@ def test_vocab():
           V.NO_EVENT in V.DT_IGNORE_TOKENS and V.NO_EVENT not in V.IGNORE_TOKENS)
     # A bin edge sitting on a mode of an integer-valued scale starves the level beside it:
     # with edges at 28 and 29 the level between them received 4 tokens in the whole cohort.
+    # The three dementia-at-entry levels must partition every subject, and "unknown" must
+    # exist: 793 subjects (17.9%, all 308 LATC among them) have no ROSMAP_clinical row, and
+    # without an explicit level the static block would be one token shorter for exactly them.
+    check("dementia-at-entry has all three levels",
+          set(V.DEMENTIA_ENTRY) == {"yes", "no", "unknown"})
+    check("dementia-at-entry levels are statics, out of the loss",
+          all(t in V.IGNORE_TOKENS for t in V.DEMENTIA_ENTRY.values()))
+    # It must NOT be the incident AD token: emitting that at baseline would put prevalent cases
+    # into the cumulative-incidence target.
+    check("dementia-at-entry is not the AD event token",
+          V.AD_DX not in V.DEMENTIA_ENTRY.values())
     check("MMSE edges above 26 are half-integers",
           all(abs(e - round(e)) > 0.4 for e in V.SCALE_EDGES["MMSE"] if e > 26),
           str(V.SCALE_EDGES["MMSE"]))
@@ -319,7 +330,7 @@ def test_dataset(data_dir):
     # machine. This was verified byte-identical between a Mac and the RIS cluster.
     # A build is deterministic given the three raw files; this pins THIS build so a silent
     # change to the tokenizer is caught. Update it deliberately when the tokenization changes.
-    EXPECTED_FP = {74900: "8992a31abaaf", 77847: "4ace556bf1a7"}
+    EXPECTED_FP = {74900: "8992a31abaaf", 77847: "4ace556bf1a7", 82275: None}
     fp = rep["fingerprints"]["train.bin"]
     want = EXPECTED_FP.get(rep["n_events"])
     check("train.bin fingerprint matches this tokenization", want is None or fp == want,
@@ -331,6 +342,14 @@ def test_dataset(data_dir):
     f, mm = counts["Sex: female"], counts["Sex: male"]
     check("cohort is ~73% female", 0.72 < f / (f + mm) < 0.74, f"{100 * f / (f + mm):.1f}%")
     check("1,164 AD diagnoses", counts["Alzheimer's dementia diagnosis"] == 1164)
+    if "Dementia at entry" in counts:
+        dem = {k: counts[k] for k in ("Dementia at entry", "No dementia at entry",
+                                      "Dementia at entry unknown")}
+        check("every subject gets exactly one dementia-at-entry level",
+              sum(dem.values()) == rep["n_subjects"], str(dem))
+        check("prevalent group is 4-7% of the cohort",
+              0.04 <= dem["Dementia at entry"] / rep["n_subjects"] <= 0.07,
+              f"{100 * dem['Dementia at entry'] / rep['n_subjects']:.1f}%")
     # Every MMSE level must be learnable. An edge on a mode of an integer scale, or a level
     # narrower than the measurement noise, produces a level almost nothing lands in.
     mmse = [counts[V.NAMES[i]] for i in V.SCALES["MMSE"]]

@@ -14,7 +14,7 @@ THE THREE POPULATIONS
                   fitting and re-included in every description.
     evaluation    training AND not baseline-impaired: ~3,691, of whom ~1,051 convert.
 
-BASELINE IMPAIRMENT, and why the AD label needs it. The codebook is explicit that
+DEMENTIA AT ENTRY, and why the AD label needs it. The codebook is explicit that
 age_first_ad_dx "is not available for participants that were demented at baseline cycle". So
 several hundred prevalent-dementia subjects sit in the negative class with no AD token at all,
 spending whole trajectories at MMSE 15-23 -- actively teaching the model that severe
@@ -90,12 +90,35 @@ def load_subjects(data_dir, radc_dir=None, split=None):
 
     # Whose AD label is MISSING rather than negative -- the subset train.py masks out of the
     # cross-entropy. Derived rather than required, so a pre-existing subjects.csv still loads.
-    if "ad_label_missing" not in sub.columns:
-        sub["ad_label_missing"] = sub["baseline_impaired"] & ~sub["ever_ad"].astype(bool)
-    sub["ad_label_missing"] = sub["ad_label_missing"].fillna(False).astype(bool)
+    # ---- baseline dementia status: the codebook-derived replacement for the old heuristic ---
+    # `baseline_impaired` (MMSE < 24 OR baseline ad_rx) was wrong in BOTH directions, measured:
+    # of the 400 it flagged, 113 (28.2%) went on to a recorded incident diagnosis and so were
+    # not prevalent at all; and of the 200 subjects the codebook rule identifies as AD-demented
+    # at entry it caught only 132 (66%), missing 67 whose baseline MMSE is a median of 25.
+    # It is kept as a column for comparison and is no longer used for anything.
+    if "dementia_at_entry" in sub.columns:
+        dem = sub["dementia_at_entry"].fillna("unknown")
+    else:                                   # a build made before the static existed
+        dem = pd.Series(np.where(sub["baseline_impaired"], "yes", "no"), index=sub.index)
+    sub["prevalent_ad"] = dem.eq("yes")
+    sub["entry_status_unknown"] = dem.eq("unknown")
 
     sub["in_training"] = sub["n_visits"] >= 2
-    sub["in_eval"] = sub["in_training"] & ~sub["baseline_impaired"]
+    # PREVALENT CASES ARE NOT AT RISK OF AN INCIDENT DIAGNOSIS -- they already have the
+    # disease -- so they leave the incidence denominator. That is the whole reason the exclusion
+    # exists, and it is now the reason rather than a cognitive-score proxy for it.
+    sub["in_eval"] = sub["in_training"] & ~sub["prevalent_ad"]
+
+    # WHOSE AD LABEL IS MISSING RATHER THAN NEGATIVE. For a subject demented at entry the
+    # label is not "no AD" but "AD, onset unobserved" -- the codebook forbids recording the
+    # age -- so train.py blanks the AD column out of their cross-entropy. This is now derived
+    # from the codebook rule, not from the old MMSE/ad_rx proxy.
+    #
+    # The 793 subjects with UNKNOWN entry status are deliberately NOT masked. Roughly 8% of
+    # them are prevalent by extrapolation from the judgeable population (~64 subjects, ~2% of
+    # the negative class), and masking all 793 to fix that would throw away 18% of the cohort's
+    # negative evidence. The contamination is documented and belongs in a sensitivity arm.
+    sub["ad_label_missing"] = sub["prevalent_ad"] & ~sub["ever_ad"].astype(bool)
 
     ad = sub["age_ad"].to_numpy(float)
     death = sub["age_death"].to_numpy(float)

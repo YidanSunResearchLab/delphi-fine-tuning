@@ -83,6 +83,33 @@ NAMES = [
     "Alcohol: light",                                   # 20
     "Alcohol: heavy",                                   # 21
     "Alcohol: unknown",                                 # 22
+    # ---- dementia status AT ENTRY, and this is a LABEL-CORRECTNESS fix, not a feature ----
+    # age_first_ad_dx is blank for two completely different reasons, and the tokenizer used to
+    # treat them alike. The codebook is explicit: "This measure is not available for
+    # participants that were demented at baseline cycle." So a blank means EITHER "never had
+    # AD" (2,242 confirmed) OR "already had it when we met them" (229). Emitting no AD token
+    # for both told the model that 229 subjects lived their whole recorded life AD-free when
+    # in fact they had it throughout.
+    #
+    # Identification follows the codebook's own definition: age_first_ad_dx is the age at the
+    # first cycle with clinical diagnosis summary in {4, 5}. So a blank age PLUS a last-visit
+    # diagnosis of dementia can only mean the first such cycle preceded baseline. Dementia does
+    # not reverse, so inferring the baseline state from the last visit is sound rather than
+    # circular. Measured separation: baseline MMSE median 22.0 for this group against 29.0 for
+    # the confirmed-never-demented and 28.0 for incident cases.
+    #
+    # THIS IS A STATIC, NOT AN AD EVENT. Emitting token "Alzheimer's dementia diagnosis" at
+    # baseline instead would put 229 incident events into the cumulative-incidence target and
+    # move the Aalen-Johansen calibration from 0.177/0.281 to something else. The AD token
+    # keeps meaning INCIDENT; prevalence is background.
+    #
+    # The UNKNOWN level is not optional. 793 subjects (17.9%, including all 308 LATC) have no
+    # ROSMAP_clinical row, so their baseline status cannot be determined either way. Without an
+    # explicit id the static block would be one token shorter for exactly them, which is the
+    # covert-channel problem the APOE-unknown token exists to avoid.
+    "Dementia at entry",                                # 23
+    "No dementia at entry",                             # 24
+    "Dementia at entry unknown",                        # 25
     # ---- ordinal scales, hysteresis keep-transitions, predicted (23..35) ----
     # MMSE is SIX levels, not four, and the three extra cuts are all above 26. 73.6% of
     # visits sit in the old top bin, so a single 27-30 level made the model blind to three
@@ -135,7 +162,7 @@ AD_DX = ID["Alzheimer's dementia diagnosis"]            # 48
 DEATH = ID["Death"]                                     # 49
 
 # ---------------------------------------------------------------- blocks
-STATIC_FIRST, STATIC_LAST = ID["Sex: male"], ID["Alcohol: unknown"]      # 2 .. 22
+STATIC_FIRST, STATIC_LAST = ID["Sex: male"], ID["Dementia at entry unknown"]   # 2 .. 25
 STATIC_IDS = tuple(range(STATIC_FIRST, STATIC_LAST + 1))
 
 # Ordinal scales. Each is run-length-encoded SEPARATELY, so a change in one scale survives
@@ -168,6 +195,14 @@ ONSET_IDS = (ID["Stroke, probable"], ID["Stroke, possible"],
 MED_IDS = (ID["Antihypertensive started"], ID["Antihypertensive stopped"],
            ID["Statin started"], ID["Statin stopped"])
 ENDPOINT_IDS = (AD_DX, DEATH)
+
+# The three-level baseline dementia status. Exported by name so the tokenizer and the
+# evaluation cohort read the same ids rather than each re-deriving the rule.
+DEMENTIA_ENTRY = {
+    "yes": ID["Dementia at entry"],
+    "no": ID["No dementia at entry"],
+    "unknown": ID["Dementia at entry unknown"],
+}
 
 # ---------------------------------------------------------------- training constants
 # Held OUT of the loss: padding, the no-event grid, and every static. They stay in the input

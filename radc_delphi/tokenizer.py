@@ -211,6 +211,49 @@ def load(radc_dir):
     return xs.set_index("projid"), lg, cl.set_index("projid")
 
 
+def dementia_at_entry(xs, cl):
+    """Per-subject baseline dementia status: "yes" / "no" / "unknown".
+
+    THE RULE COMES FROM THE CODEBOOK, not from a threshold. age_first_ad_dx is defined as the
+    age at the first cycle whose clinical diagnosis summary is 4 or 5, and the codebook adds:
+    "This measure is not available for participants that were demented at baseline cycle."
+
+    So a blank age_first_ad_dx has two incompatible meanings, and the tokenizer used to collapse
+    them. Resolving it needs one more fact, and dcfdx_lv -- the clinical diagnosis at the last
+    valid evaluation -- supplies it:
+
+        blank age AND last-visit dementia   -> the first diagnosing cycle preceded baseline
+        blank age AND no last-visit dementia -> genuinely never demented
+        a recorded age                       -> not demented at baseline, by construction
+
+    Using a LAST-visit variable to infer a BASELINE state is sound here and not circular,
+    because dementia does not reverse: "demented at baseline" implies "demented at last visit",
+    so the last visit can only ever confirm it.
+
+    Measured: 229 yes (200 of them AD specifically, 29 other dementia), 3,406 no, 793 unknown.
+    Baseline MMSE separates them cleanly -- median 22.0 / 29.0 / n.a. -- which is the external
+    check that the rule is picking out the group it claims to.
+
+    WHY "unknown" IS ITS OWN LEVEL. 793 subjects (17.9%, including every one of the 308 LATC)
+    have no ROSMAP_clinical row at all, so neither branch applies. Folding them into "no" would
+    assert something unmeasured about 18% of the cohort; omitting the token would make the
+    static block one shorter for exactly them, which is the covert channel the APOE-unknown
+    level exists to close.
+
+    NOTE what this is NOT. It is a STATIC, not an AD event. Emitting the AD token at baseline
+    for these subjects would add 229 incident events to the cumulative-incidence target and
+    move the Aalen-Johansen calibration the evaluation is anchored on. Token "Alzheimer's
+    dementia diagnosis" keeps meaning INCIDENT; prevalence is background.
+    """
+    ad = pd.to_numeric(xs["age_first_ad_dx"], errors="coerce")
+    dcf = pd.to_numeric(cl.get("dcfdx_lv"), errors="coerce").reindex(xs.index)
+    out = pd.Series("no", index=xs.index, dtype=object)
+    blank = ad.isna()
+    out[blank & dcf.isna()] = "unknown"
+    out[blank & dcf.isin([4, 5, 6])] = "yes"
+    return out
+
+
 # ------------------------------------------------------------------ the missing AD label
 def baseline_impairment(lg):
     """Impaired at the baseline cycle, per subject: (MMSE < 24) OR (already on an AD drug).
@@ -300,6 +343,12 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
 
     xs, lg, cl = load(radc_dir)
     V.check()
+    dem_entry = dementia_at_entry(xs, cl)
+    n_yes = int((dem_entry == "yes").sum())
+    n_unk = int((dem_entry == "unknown").sum())
+    print(f"  dementia at entry: {n_yes} yes ({100 * n_yes / len(xs):.1f}%), "
+          f"{n_unk} unknown ({100 * n_unk / len(xs):.1f}%), "
+          f"{len(xs) - n_yes - n_unk} no")
     if canary:
         enable_canary_vocab()
         print(f"  [CANARY] planting id {CANARY_ID} on the marked "
@@ -354,6 +403,8 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
         add(a0, "Education <=12y" if r.educ <= 12 else
                    ("Education 13-16y" if r.educ <= 16 else "Education >=17y"))
         add(a0, STUDY_MAP[r.study])
+        add(a0, {"yes": "Dementia at entry", "no": "No dementia at entry",
+                 "unknown": "Dementia at entry unknown"}[dem_entry.loc[pid]])
         add(a0, "Smoking: unknown" if pd.isna(r.smoking_bl)
             else SMOKING_MAP[int(r.smoking_bl)])
         add(a0, "Alcohol: unknown" if pd.isna(r.ldai_bl) else
@@ -476,6 +527,7 @@ def tokenize(radc_dir, emit_ad_rx=False, canary=False, canary_fraction=CANARY_FR
             ever_ad=bool(pd.notna(r.age_first_ad_dx)),
             age_ad=float(r.age_first_ad_dx) if pd.notna(r.age_first_ad_dx) else np.nan,
             died=int(r.died),
+            dementia_at_entry=dem_entry.loc[pid],
             age_death=float(death_days) / DAYS_PER_YEAR if death_days is not None else np.nan,
             age_last_obs=float(max(last_grid, ad_days or -1)) / DAYS_PER_YEAR,
             n_events=len(ev),
