@@ -455,6 +455,8 @@ def sweep_table(runs, vocab_size):
     r["val_total"] = r["val_total"].fillna(r["best_val"])
     r["params"] = (12 * r["n_layer"] * r["n_embd"] ** 2      # blocks: 4x attn + 8x MLP
                    + vocab_size * r["n_embd"]                # tied token embedding / lm_head
+                   + r["n_embd"] ** 2                        # the age encoding's projection
+                   + (2 * r["n_layer"] + 1) * r["n_embd"]    # LayerNorm weights, bias=False
                    + r["n_embd"] + 1)                        # scalar time head
     g = r.groupby(["n_layer", "n_embd", "dropout", "params"], as_index=False).agg(
         n_folds=("fold", "nunique"),
@@ -463,6 +465,24 @@ def sweep_table(runs, vocab_size):
         dt_mean=("val_dt", "mean"), dt_sd=("val_dt", "std"),
         iter_median=("best_iter", "median"))
     return g.sort_values(["dropout", "params"]).reset_index(drop=True)
+
+
+def fan_labels(ax, items):
+    """Direct labels at each series' leftmost point, fanned by that point's RANK in y and
+    clamped inside the axes. Fanning by series index instead puts the 4th dropout's label on
+    the panel title, and the lowest series' label under the axis line whenever the smallest
+    cell wins -- and these labels are what keeps identity off colour alone."""
+    lo, hi = ax.get_ylim()
+    h = ax.get_window_extent().height
+    px = ax.figure.dpi / 72.0
+    order = sorted(range(len(items)), key=lambda k: items[k][1])
+    for rank, k in enumerate(order):
+        x, y, text = items[k]
+        y_px = (y - lo) / (hi - lo) * h
+        want = y_px + (rank - (len(items) - 1) / 2.0) * 11.0 * px
+        want = min(max(want, 7.0 * px), h - 10.0 * px)
+        ax.annotate(text, (x, y), textcoords="offset points",
+                    xytext=(-9, (want - y_px) / px - 3), fontsize=8.5, color=INK, ha="right")
 
 
 def panel_c(runs, out_dir, stem, vocab_size, vocab_src, select):
@@ -483,6 +503,7 @@ def panel_c(runs, out_dir, stem, vocab_size, vocab_src, select):
     ax_dt = fig.add_subplot(gs[1, 1])
 
     drops = sorted(df["dropout"].unique())
+    pending = {}
     for i, p in enumerate(drops):
         d = df[np.isclose(df.dropout, p)].sort_values("params")
         c = slot(i)
@@ -493,10 +514,10 @@ def panel_c(runs, out_dir, stem, vocab_size, vocab_src, select):
             ax.plot(d["params"], d[mu], color=c, lw=2, zorder=3, label=f"dropout {p:g}")
             ax.plot(d["params"], d[mu], "o", ms=8, color=c, zorder=4)
             # <= 4 series are direct-labeled as well as legended, so identity is never
-            # colour-alone -- and #1baf7a must always carry one
+            # colour-alone -- and #1baf7a must always carry one. Placed after every series is
+            # drawn, because the fan has to know where the curves actually are.
             first = d.iloc[0]
-            ax.annotate(f"{p:g}", (first["params"], first[mu]), textcoords="offset points",
-                        xytext=(-9, -3 + (i - 1) * 11), fontsize=8.5, color=INK, ha="right")
+            pending.setdefault(ax, []).append((first["params"], first[mu], f"{p:g}"))
 
     if sel is not None:
         ax_tot.plot([sel["params"]], [sel["total_mean"]], "o", ms=17, mfc="none",
@@ -534,6 +555,10 @@ def panel_c(runs, out_dir, stem, vocab_size, vocab_src, select):
         frame(ax, xlab="parameters", ylab=lab)
     ax_tot.set_xlabel("parameters (log scale)", fontsize=9, color=MUTED)
 
+    fig.canvas.draw()          # the fan needs the settled y-limits and the axes height
+    for ax, items in pending.items():
+        fan_labels(ax, items)
+
     n_runs, n_cells = len(runs), len(df)
     folds = int(df["n_folds"].max())
     ax_tot.set_title(f"C -- Capacity sweep: {n_runs} runs, {n_cells} cells x {folds} CV folds "
@@ -557,7 +582,9 @@ def panel_c(runs, out_dir, stem, vocab_size, vocab_src, select):
              fontsize=8.5, color=INK, ha="center", va="top", wrap=True)
     fig.text(0.0, 0.03,
              f"params = 12*n_layer*n_embd^2 (blocks) + {vocab_size}*n_embd (token embedding, "
-             f"tied to lm_head) + n_embd+1 (time head); no positional term. "
+             f"tied to lm_head) + n_embd^2 (the age encoding's projection, which took wpe's "
+             f"place) + (2*n_layer+1)*n_embd (LayerNorm weights, bias=False) + n_embd+1 (time "
+             f"head): reproduces torch's own count exactly on every swept shape. "
              f"vocab_size from {vocab_src}.",
              fontsize=8, color=MUTED, ha="left", va="top", wrap=True)
     emit(fig, df, stem, out_dir)

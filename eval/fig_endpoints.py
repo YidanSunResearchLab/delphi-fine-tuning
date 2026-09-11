@@ -79,9 +79,12 @@ GREY, INK, INK2, SURFACE, GRIDC = "#52514e", "#0b0b0b", "#52514e", "#fcfcfb", "#
 SIM, OBS, MATCHED = C1, C2, C3
 DPI = 200
 
-# An arm with no positives has no AUC; evaluate.py flags it with auc_reportable and we draw
-# the reason instead of a hole.
-NO_AUC_NOTE = "no positives\nat this lead"
+# An arm with too few positives has no AUC; evaluate.py flags it with auc_reportable and we
+# draw the reason instead of a hole. The threshold is evaluate.py's MIN_POSITIVES and is not
+# in the JSON, so the note reads the count off the arm rather than naming a number.
+def no_auc_note(n_pos):
+    return ("no positives\nat this lead" if n_pos == 0 else
+            "too few positives\nto score an AUC")
 
 
 # ------------------------------------------------------------------ small shared helpers
@@ -297,7 +300,8 @@ def panel_a(res, out_dir, stem):
             if not np.isfinite(auc):
                 # axes fraction, not a data y: the scale below is derived from the data, and
                 # a fixed y would drift onto the tick labels as soon as an arm sits low
-                ax.annotate(f"{NO_AUC_NOTE}\n{fmt_n(n_ev)} rows, {fmt_n(n_pos)} events",
+                ax.annotate(f"{no_auc_note(n_pos)}\n{fmt_n(n_ev)} rows, "
+                            f"{fmt_n(n_pos)} events",
                             (xi, note_y), xycoords=("data", "axes fraction"), ha="center",
                             va="center", fontsize=8, color=INK2)
                 continue

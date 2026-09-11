@@ -396,6 +396,23 @@ def panel_b(lg, out_dir):
 
 
 # ---------------------------------------------------------------- panel C
+def quantisation_step(d):
+    """mad_sigma's resolution on these second differences. MMSE is a whole-point instrument, so
+    its second differences are integers, the MAD can only move in whole units and sigma only in
+    multiples of 1.4826 / sqrt 6 = 0.61. Every one of the 400 bootstrap resamples then lands on
+    the same atom and the 95% interval comes back with ZERO width, which a reader takes as
+    "measured exactly" and which means the opposite. Continuous scales return 0."""
+    return 1.4826 / np.sqrt(6.0) if np.allclose(d, np.round(d)) else 0.0
+
+
+def display_bins(scale, mids):
+    """The considered bins when fig_design has them, else the token edges closed with the
+    observed range -- a scale added to vocab.SCALES renders instead of taking the panel down."""
+    if scale in SIGMA_BINS:
+        return SIGMA_BINS[scale]
+    return (float(np.floor(mids.min())), *V.SCALE_EDGES[scale], float(np.ceil(mids.max())) + 1.0)
+
+
 def sigma_by_bin(mids, diffs, edges, rng):
     rows = []
     for lo, hi in zip(edges[:-1], edges[1:]):
@@ -405,11 +422,46 @@ def sigma_by_bin(mids, diffs, edges, rng):
             continue
         d = diffs[m]
         boot = np.array([mad_sigma(d[rng.integers(0, n, n)]) for _ in range(N_BOOT)])
+        ci_lo, ci_hi = (float(np.percentile(boot, q)) for q in (2.5, 97.5))
         rows.append({"bin_lo": lo, "bin_hi": hi, "n_triples": n,
                      "value": float(np.median(mids[m])), "sigma": mad_sigma(d),
-                     "ci_lo": float(np.percentile(boot, 2.5)),
-                     "ci_hi": float(np.percentile(boot, 97.5))})
+                     "ci_lo": ci_lo, "ci_hi": ci_hi,
+                     "estimator_step": quantisation_step(d),
+                     "ci_degenerate": bool(ci_hi - ci_lo < 1e-12)})
     return pd.DataFrame(rows)
+
+
+def place_label(ax, text, target, marks, blocked, fontsize=9.5):
+    """Direct-label `target` from the emptiest box the axes has, with a leader back to the mark
+    the text names. A fixed offset does not survive a change of scale: at the shipped anchors
+    "vocab.SCALE_SIGMA" was drawn straight through two measured points and the 8px markers ate
+    three of its glyphs. Returns the box it used, so the next label can avoid it."""
+    bb = ax.get_window_extent()
+    w = len(text) * fontsize * 0.60 * ax.figure.dpi / 72.0 / bb.width
+    h = fontsize * 1.9 * ax.figure.dpi / 72.0 / bb.height
+    P = np.asarray([ax.transLimits.transform(m) for m in marks])
+    tx, ty = ax.transLimits.transform(target)
+    best = None
+    for cy in np.arange(0.06, 0.97, 0.03):
+        for x0 in np.arange(0.02, 0.985 - w, 0.02):
+            box = (x0, cy - h / 2, x0 + w, cy + h / 2)
+            if any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3]
+                   for b in blocked):
+                continue
+            dx = np.clip(np.maximum(box[0] - P[:, 0], P[:, 0] - box[2]), 0, None)
+            dy = np.clip(np.maximum(box[1] - P[:, 1], P[:, 1] - box[3]), 0, None)
+            # clear of every mark first (capped, so extra clearance never buys a long leader),
+            # then as close to the thing it names as that allows
+            score = 10 * min(float(np.hypot(dx, dy).min()), 0.05) - np.hypot(x0 + w / 2 - tx,
+                                                                            cy - ty)
+            if best is None or score > best[0]:
+                best = (score, box)
+    box = best[1]
+    ax.annotate(text, xy=target, xytext=(box[0], (box[1] + box[3]) / 2),
+                textcoords="axes fraction", ha="left", va="center", color=INK,
+                fontsize=fontsize, zorder=7,
+                arrowprops=dict(arrowstyle="-", color=GREY, lw=0.8, shrinkA=1, shrinkB=5))
+    return box
 
 
 def panel_c(lg, out_dir, seed=0):
