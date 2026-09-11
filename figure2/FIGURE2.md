@@ -81,8 +81,8 @@ silently wrong: Death terminates the rollout, the No-event marker can never be s
 
 ## The panels, and what they say on this model
 
-**a — Per-state prediction accuracy.** Three cells. *a1* 5-year AUC for REACHING each state,
-one number per state, subject bootstrap CI, shown only where ≥30 events and ≥30 non-events
+**a — Per-state prediction accuracy.** Three cells. *a1* 5-year AUC for REACHING each state or
+scale level, one number per row, subject bootstrap CI, shown only where ≥30 events and ≥30 non-events
 exist. At risk: subjects not already in that state at baseline (Death and AD cannot be present
 at baseline in this stream — prevalent AD is a STATIC, not an event — so everyone is at risk of
 the incident version). *a2* mean predicted risk vs the Aalen–Johansen cumulative incidence on
@@ -99,16 +99,47 @@ baseline stage, among subjects who actually transitioned before dying.
 > `fig2a_stratified_*_data.csv` and `metrics.json` under `per_transition_stratified`, because it
 > is the only place the figure says whether discrimination depends on the starting stage.
 
-| state | at risk | events | **AUC** | 95% CI | observed | predicted |
+| row | at risk | events | **AUC** | 95% CI | observed | predicted |
 |---|---|---|---|---|---|---|
-| Severe (MMSE <18) | 780 | 43 | **0.809** | [0.741, 0.873] | 0.060 | 0.026 |
+| **cogn_global >0.8** | 728 | 71 | **0.823** | [0.782, 0.866] | 0.103 | 0.096 |
+| MMSE Severe (<18) | 780 | 43 | **0.809** | [0.741, 0.873] | 0.060 | 0.026 |
+| cogn_global ≤−2.0 | 782 | 30 | **0.806** | [0.724, 0.892] | 0.042 | 0.013 |
 | AD diagnosis | 793 | 95 | **0.777** | [0.725, 0.826] | 0.128 | 0.089 |
-| Normal (back to ≥27) | 165 | 47 | **0.758** | [0.671, 0.838] | 0.296 | 0.275 |
-| Moderate (18–23) | 758 | 83 | **0.729** | [0.674, 0.786] | 0.117 | 0.064 |
+| cogn_global −2.0 to −1.0 | 746 | 73 | **0.770** | [0.711, 0.823] | 0.105 | 0.035 |
+| MMSE Normal (back to ≥27) | 165 | 47 | **0.758** | [0.671, 0.838] | 0.296 | 0.275 |
+| cogn_global 0.2 to 0.8 | 503 | 97 | **0.758** | [0.709, 0.807] | 0.201 | 0.163 |
+| MMSE Moderate (18–23) | 758 | 83 | **0.729** | [0.674, 0.786] | 0.117 | 0.064 |
+| cogn_global −1.0 to −0.3 | 651 | 115 | **0.710** | [0.662, 0.758] | 0.187 | 0.080 |
+| cogn_global −0.3 to 0.2 | 550 | 105 | **0.627** | [0.573, 0.681] | 0.201 | 0.118 |
 | Death | 793 | 176 | **0.607** | [0.561, 0.649] | 0.237 | **0.006** |
-| Mild (24–26) | 676 | 111 | **0.562** | [0.505, 0.622] | 0.173 | 0.104 |
+| MMSE Mild (24–26) | 676 | 111 | **0.562** | [0.505, 0.622] | 0.173 | 0.104 |
 
-> Median 0.743. Every rate is UNDER-predicted (mean −0.074), and death by a factor of 40.
+**TWO INSTRUMENTS, AND THEY MUST NOT BE SUMMED.** The four MMSE stages are a partition — exactly
+one holds at any time, and panel c's stage-at-age grid walks it. The six `cogn_global` levels are
+a SECOND, independent partition, scored identically but deliberately kept out of the state space:
+a cognition token inside `GRID_TOKENS` would overwrite the MMSE stage on panel c's carry-forward
+grid and make the stage unreadable for every later grid year. The panel groups the three families
+by POSITION (a blank row between blocks) rather than by hue, because twelve identities is more
+than colour can carry — every row is named on the axis and carries its AUC at the bar end, so
+colour only has to say which family a row belongs to. The two ordinal ramps were checked with the
+dataviz validator on their FAMILY identities (GnBu mid, RdPu mid, `#D55E00`, `#4d4d4d`): CVD worst
+ΔE 8.8 deutan / 7.2 tritan, normal-vision worst 20.8, both PASS. Within a family, order is carried
+by lightness (monotonic, asserted in the test suite).
+
+**`cogn_global` is the better instrument, and the shape is the same on both.** Its floor (0.627 at
+−0.3 to 0.2) sits well above MMSE's (0.562 at Mild), and its top row (0.823 at >0.8) is the best
+row in the whole panel — above AD. Both instruments show the same U: the extremes are predictable,
+the middle of the distribution is not. That is the third independent line pointing at the same
+fact — a bin in the middle of a noisy scale is the hardest thing here to predict, which is what
+the σ measurement says from the other side and what `vocab.py` predicted when it recorded that
+`cogn_global` is complementary to MMSE rather than redundant and starts moving 3–4 years earlier.
+
+`cogn_global ≤−2.0` sits exactly ON the 30-event floor and its CI is correspondingly wide
+[0.724, 0.892]. Read it as "high, imprecise", not as 0.806.
+
+> Median across the 12 rows 0.758. Every rate is UNDER-predicted (mean −0.065), death by a
+> factor of 40 and `cogn_global ≤−2.0` by a factor of 3. The one nearly-calibrated row is
+> `cogn_global >0.8` (0.103 observed against 0.096 predicted) — which is IMPROVEMENT.
 >
 > **`Mild` is the one row that fails, and the reason is measured rather than guessed.** Among
 > baseline-Normal subjects the observed 5-year rate of reaching 24–26 is 0.211 / 0.218 / 0.215 /

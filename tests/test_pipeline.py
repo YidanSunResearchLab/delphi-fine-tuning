@@ -13,6 +13,7 @@ project or was found while building this one.
 """
 import os
 import sys
+import math
 import argparse
 
 import numpy as np
@@ -613,14 +614,50 @@ def test_figure2_states():
     check("death without progression is its own class",
        S.trajectory_class(0, fp, True, 0) == "Died, no progression")
 
+    # auxiliary slots: scoreable, but MUST NOT be in the state grid, or panel c's
+    # stage-at-age carry-forward would latch onto the wrong instrument
+    check("global cognition is an auxiliary scale", "COG" in S.AUX_SCALES)
+    aux_toks = [t for _sl, t in S.AUX_OF_SCALE["COG"]]
+    check("aux slots are exactly the COG levels", aux_toks == list(V.SCALES["COG"]),
+       f"{len(aux_toks)} levels at slots {S.AUX_SLOTS}")
+    check("no aux token is in the state grid",
+       not any(t in S.GRID_TOKENS for t in aux_toks))
+    check("no aux slot is in the state grid", not any(s in S.GRID_SLOTS for s in S.AUX_SLOTS))
+    check("the state grid is still stages+Death", S.NSTATE == S.NSTAGE + 1)
+    check("slot_of resolves every aux token",
+       list(S.slot_of(aux_toks)) == list(S.AUX_SLOTS))
+    check("slot names are unique", len(set(S.ALL_NAMES)) == len(S.ALL_NAMES),
+       f"{S.NSLOT} slots")
+
     # the palette guard: no two outcomes may share a colour
     from figure2 import plotting_style as ps
     cols = list(ps.OUTCOME_COLORS.values())
     check("no two outcomes share a colour", len(cols) == len(set(cols)),
        f"{len(cols)} outcomes")
     check("severity ramp sizes to the stage count",
-       len(ps.severity_ramp(S.NSTAGE)) == S.NSTAGE and
-       len(ps.severity_ramp(7)) == 7)
+          len(ps.severity_ramp(S.NSTAGE)) == S.NSTAGE and
+          len(ps.severity_ramp(7)) == 7)
+    # Two ordinal instruments share panel a1, so their ramps must not overlap, and each must be
+    # monotonic in LIGHTNESS -- which is the correct check for a SEQUENTIAL ramp. The dataviz
+    # validator's categorical checks (lightness band, chroma floor, adjacent dE >= 15) do not
+    # apply to a ramp and it says so in its own scope note; running them on one reports FAILs
+    # for exactly the properties a sequential ramp is supposed to have. What the validator IS
+    # used for here is the CROSS-family check, recorded in plotting_style.severity_ramp.
+    import matplotlib.colors as _mc
+
+    def _lum(h):
+        def f(c):
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+        r, g, b_ = _mc.to_rgb(h)
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b_)
+
+    r_mmse, r_cog = ps.severity_ramp(4), ps.severity_ramp(6, cmap="RdPu")
+    check("the two instrument ramps share no step", not (set(r_mmse) & set(r_cog)))
+    for _nm, _rr in (("MMSE", r_mmse), ("cognition", r_cog)):
+        _L = [_lum(h) for h in _rr]
+        check(f"{_nm} ramp is monotonic in lightness",
+              all(_L[i] > _L[i + 1] for i in range(len(_L) - 1)),
+              f"L {_L[0]:.2f} -> {_L[-1]:.2f}")
 
     # perdomain must cover every predicted content token that is not a stage or an endpoint
     from figure2 import perdomain as PD
@@ -636,6 +673,162 @@ def test_figure2_states():
        PD._adverse_bins(list(V.SCALES["MMSE"]), 4, True) == [0, 1, 2, 3])
     check("adverse is either side for BMI",
        PD._adverse_bins(list(V.SCALES["BMI"]), 1, False) == [0, 2])
+
+
+# ---------------------------------------------------------------- death as a hazard
+def test_death_head(data_dir):
+    """The separate death hazard, and the four ways it can be silently wrong.
+
+    Motivation is in DelphiConfig.death_head: under the shared softmax P(Death) collapses
+    through its base rate (0.132 -> 0.0022 at real death positions in the TRAINING stream
+    between iters 800 and 5900, against a 3.92% base rate) because mass withheld from Death is
+    mass handed to the tokens that did occur. Each check below corresponds to a way of
+    building the replacement that would train happily and fix nothing.
+    """
+    print("\ndeath head")
+    from radc_delphi.model import death_exposure                        # noqa: E402
+
+    base = dict(vocab_size=V.VOCAB_SIZE, block_size=64, n_layer=2, n_head=4, n_embd=32,
+                ignore_tokens=list(V.IGNORE_TOKENS), t_min=365.25 / 12, time_head=True,
+                dt_target="next_event", mask_ties=True)
+
+    # THE INITIALISATION, in absolute per-day units. The first version of this head set the
+    # bias from log(vocab_size) + log(P(next event is death)), copying time_head's idiom --
+    # which put lambda_raw 11,259x above the corpus rate and pinned lambda_eff against its own
+    # t_min ceiling, so the head began deeply saturated and never fit anything. The effective
+    # hazard the loss integrates must start exactly at the target, floor included.
+    import math as _math                                                # noqa: E402
+    _h = 1.95e-4
+    _m = Delphi(DelphiConfig(**base, death_head=True, death_token=V.DEATH,
+                             death_init_hazard=_h))
+    _raw = _math.exp(_m.death_head.bias.item())
+    _eff = 1.0 / (1.0 / _raw + base["t_min"])
+    check("death_head starts at the requested per-day hazard, floor included",
+          abs(_eff - _h) / _h < 1e-4, f"lambda_eff {_eff:.4e} against {_h:.4e}")
+    try:
+        Delphi(DelphiConfig(**base, death_head=True, death_token=V.DEATH,
+                            death_init_hazard=1.0 / base["t_min"]))
+        check("death_head rejects a hazard at or above 1/t_min", False, "constructed anyway")
+    except ValueError:
+        check("death_head rejects a hazard at or above 1/t_min", True)
+
+    # The head is meaningless without its own intensity to compete against, and an id of 0 is
+    # the off switch -- both must fail loudly rather than train something else.
+    for bad, why in (({"time_head": False}, "time_head=False"), ({"death_token": 0}, "no id")):
+        cfg = dict(base, death_head=True, death_token=V.DEATH)
+        cfg.update(bad)
+        try:
+            Delphi(DelphiConfig(**cfg))
+            check(f"death_head rejects {why}", False, "constructed anyway")
+        except ValueError:
+            check(f"death_head rejects {why}", True)
+
+    # Same seed, one added head: every SHARED parameter must be bit-identical, or the two arms
+    # are two unrelated runs and the comparison measures nothing. This is why the head is
+    # built after self.apply(_init_weights) -- see the comment there.
+    torch.manual_seed(42)
+    off = Delphi(DelphiConfig(**base))
+    torch.manual_seed(42)
+    on = Delphi(DelphiConfig(**base, death_head=True, death_token=V.DEATH))
+    so, sn = off.state_dict(), on.state_dict()
+    extra = sorted(set(sn) - set(so))
+    check("arms are bit-identical on every shared parameter",
+          all(torch.equal(so[k], sn[k]) for k in so), f"extra params {extra}")
+    check("the head is the only addition", extra == ["death_head.bias", "death_head.weight"],
+          str(extra))
+
+    val_bin = os.path.join(data_dir, "val.bin")
+    if not os.path.exists(val_bin):
+        check("val.bin present for the death-head checks", False, f"no {val_bin}")
+        return
+    data = np.fromfile(val_bin, dtype=np.uint32).reshape(-1, 3)
+    p2i = get_p2i(data)
+    torch.manual_seed(0)
+    np.random.seed(0)
+    X, A, Y, B = get_batch(np.arange(min(32, len(p2i))), data, p2i, block_size=64,
+                           device="cpu", select="left", padding="random",
+                           no_event_token_rate=2, cut_batch=True)
+
+    # THE BUG THIS FILE EXISTS TO PREVENT, found by measurement while building the head.
+    # Death is terminal and the tokenizer forces it strictly after everything else, so it is
+    # always the LAST entry of a subject's stream -- which means it lands in `targets` and
+    # NEVER in `idx`. A hazard built by scanning the input stream sees zero events, trains on
+    # an all-censored sample, and drives the rate to zero: the very failure being repaired.
+    n_in_targets = int((Y == V.DEATH).sum())
+    check("Death never appears in the INPUT stream", int((X == V.DEATH).sum()) == 0,
+          f"{int((X == V.DEATH).sum())} occurrences")
+    if n_in_targets:
+        _, is_d, ok_d = death_exposure(A, Y, B, V.DEATH)
+        check("death_exposure sees every death in the batch",
+              int((is_d & ok_d).sum()) == n_in_targets,
+              f"{int((is_d & ok_d).sum())} of {n_in_targets}")
+        dt_d, _, _ = death_exposure(A, Y, B, V.DEATH)
+        check("death events carry a strictly positive exposure",
+              bool((dt_d[is_d & ok_d] > 1.0).all()),
+              f"min {float(dt_d[is_d & ok_d].min()):.1f} d")
+    else:
+        check("batch contains at least one death to score", False, "none in this batch")
+
+    _, l_off, _ = off(X, A, Y, B)
+    _, l_on, _ = on(X, A, Y, B)
+    check("the off arm is unchanged: exactly two loss terms",
+          sorted(l_off) == ["loss_ce", "loss_dt"], str(sorted(l_off)))
+    check("the on arm adds loss_death",
+          sorted(l_on) == ["loss_ce", "loss_death", "loss_dt"], str(sorted(l_on)))
+
+    # THE STRUCTURAL CLAIM. If the cross-entropy can still reach death_head, the collapse
+    # gradient is back and the head is decoration. Exactly zero, not merely small.
+    on.zero_grad()
+    _, l, _ = on(X, A, Y, B)
+    l["loss_ce"].backward()
+    g = on.death_head.weight.grad
+    check("loss_ce reaches death_head with EXACTLY zero gradient",
+          g is None or float(g.abs().max()) == 0.0,
+          "None" if g is None else f"max|g| {float(g.abs().max()):.3e}")
+    on.zero_grad()
+    _, l, _ = on(X, A, Y, B)
+    l["loss_death"].backward()
+    check("loss_death does reach death_head",
+          float(on.death_head.weight.grad.abs().max()) > 0,
+          f"max|g| {float(on.death_head.weight.grad.abs().max()):.3e}")
+
+    # -inf lives in the masked Death column of the CE tensor and in the non-death softmax.
+    # torch.where's discarded branch must not carry it into backward.
+    on.zero_grad()
+    _, l, _ = on(X, A, Y, B)
+    sum(l.values()).backward()
+    bad = [n for n, p in on.named_parameters()
+           if p.grad is not None and not torch.isfinite(p.grad).all()]
+    check("every gradient is finite under the combined loss", not bad, str(bad))
+
+    # The sampler is untouched by design: log lambda_death goes into the Death column and
+    # generate()'s argmin over competing exponentials does the rest. If Death can no longer be
+    # drawn at all, the head has broken the thing it was built to fix.
+    #
+    # Deliberately run at an ELEVATED init hazard rather than the data's own 1.95e-4/day. What
+    # is under test is the plumbing -- that lambda_death reaches the Death column and the
+    # sampler can select it -- and at the real rate an untrained model fires death in about
+    # 0.6% of steps, so a 64-token budget would make this check a coin flip on the seed rather
+    # than a statement about the code. 0.02/day sits below the 1/t_min ceiling.
+    hot = Delphi(DelphiConfig(**base, death_head=True, death_token=V.DEATH,
+                              death_init_hazard=0.02)).eval()
+    hot.load_state_dict(on.state_dict(), strict=False)
+    with torch.no_grad():
+        hot.death_head.bias.fill_(math.log(1.0 / (1.0 / 0.02 - base["t_min"])))
+    idx = torch.tensor([[3, 26, 30]] * 16)
+    aged = torch.tensor([[28000.0, 28001.0, 28001.0]] * 16)
+    with torch.no_grad():
+        gi, _, _ = hot.generate(idx, aged, max_new_tokens=64, max_age=110 * 365.25,
+                                termination_tokens=list(V.TERMINATION_TOKENS),
+                                extra_ignore=[V.NO_EVENT],
+                                repeatable_tokens=list(V.REPEATABLE_TOKENS))
+    check("Death is still reachable by generate()", bool((gi == V.DEATH).any()))
+    after = 0
+    for r in range(gi.shape[0]):
+        pos = (gi[r] == V.DEATH).nonzero().flatten()
+        if len(pos):
+            after += int((gi[r][int(pos[0]) + 1:] > 0).sum())
+    check("death is still absorbing under the head", after == 0, f"{after} live tokens")
 
 
 def main():
@@ -661,6 +854,7 @@ def main():
     test_figure2_states()
     test_missing_ad_label_data(a.data_dir)
     test_rollout_probe(a.data_dir)
+    test_death_head(a.data_dir)
     if a.full:
         test_rebuild(a.radc_dir, a.data_dir)
 

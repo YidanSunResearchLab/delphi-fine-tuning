@@ -87,9 +87,22 @@ _assert_unique(OUTCOME_COLORS, "OUTCOME_COLORS")
 # four colours for seven stages. Single hue, light -> dark, which is the correct encoding for an
 # ordered magnitude: a diverging or categorical palette on an ordinal stage implies a midpoint
 # or an unordered set, and this axis has neither.
-def severity_ramp(n):
-    """`n` steps of one blue hue, light (best) -> dark (worst)."""
-    base = plt.get_cmap("YlGnBu")
+def severity_ramp(n, cmap="GnBu"):
+    """`n` steps of ONE hue, light (best) -> dark (worst).
+
+    `cmap` exists so two ordinal instruments on the same axes get different hues -- panel a1
+    carries both the MMSE-derived stages and the global-cognition levels, and a reader must not
+    be able to mistake one family's third step for the other's. Within a family lightness
+    carries the order, across families hue carries the identity.
+    """
+    # Default GnBu and not YlGnBu: YlGnBu sweeps green -> blue, which put its mid-tone within
+    # dE 12.7 (normal vision) of the RdPu ramp panel a1 uses for the second instrument -- below
+    # the 15 floor, i.e. a full-colour reader could not tell an MMSE stage from a cognition
+    # level. Measured with the dataviz validator on the four FAMILY identities
+    # (GnBu mid, RdPu mid, #D55E00, #4d4d4d): CVD worst dE 8.8 deutan / 7.2 tritan PASS,
+    # normal-vision worst 20.8 PASS. Within a family, order is carried by lightness (monotonic
+    # by construction) and identity by the direct row labels, not by hue.
+    base = plt.get_cmap(cmap)
     return [matplotlib.colors.to_hex(base(x)) for x in np.linspace(0.28, 0.94, n)]
 
 

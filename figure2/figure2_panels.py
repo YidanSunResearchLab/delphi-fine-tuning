@@ -123,7 +123,16 @@ def _save(fig, stem, data=None):
 
 # =========================================================================== PANEL A
 def state_targets():
-    """The slots panel a scores, in reading order: the stages worst-last, then the endpoints.
+    """The slots panel a scores: the stages worst-last, the endpoints, then the auxiliary scales.
+
+    THE PANEL NOW HOLDS TWO INSTRUMENTS AND SAYS SO. The four stages are a PARTITION of the
+    MMSE levels -- exactly one holds at any time, and panel c's stage-at-age grid walks it. The
+    global-cognition rows are a SECOND, independent partition, scored the same way but kept out
+    of the state space (see radc_states.AUX_SCALES for why: a cogn_global token in GRID_TOKENS
+    would overwrite the MMSE stage on panel c's carry-forward grid). So a1 is no longer "one
+    state space"; every row is still the same question -- "does the subject reach this level
+    within H years, among those not already in it" -- but rows from different instruments are
+    not mutually exclusive and must not be summed.
 
     This REPLACED a (baseline stage -> reached state) grid, and the reason is worth recording.
     That grid had 20 cells of which 5 cleared the event floor, and its row labels ("Mild→Death")
@@ -133,13 +142,88 @@ def state_targets():
     ones. The stratified version is still computed -- see compute_A_strat -- and written to the
     source CSV and metrics.json, so nothing is lost; it is just not the headline.
     """
-    return list(range(S.NSTAGE)) + [F2.DEATH_IDX, F2.AD_IDX]
+    return list(range(S.NSTAGE)) + [F2.DEATH_IDX, F2.AD_IDX] + list(S.AUX_SLOTS)
+
+
+# One sequential ramp per ordinal instrument, in DIFFERENT hues, so a reader cannot mistake an
+# MMSE stage for a cognition level. Both run light -> dark with severity, which is the correct
+# encoding for an ordered magnitude; a categorical palette here would imply an unordered set.
+COG_COLORS = ps.severity_ramp(len(S.AUX_SLOTS), cmap="RdPu") if S.AUX_SLOTS else []
 
 
 def _slot_colour(slot):
     if slot < S.NSTAGE:
         return STATE_COLORS[slot]
-    return ps.OUTCOME_COLORS["Death" if slot == F2.DEATH_IDX else "AD diagnosis"]
+    if slot == F2.DEATH_IDX:
+        return ps.OUTCOME_COLORS["Death"]
+    if slot == F2.AD_IDX:
+        return ps.OUTCOME_COLORS["AD diagnosis"]
+    # auxiliary levels are stored worst-first (vocab order is low -> high on the measurement,
+    # which for cognition means worst first), so the ramp index is the offset directly
+    return COG_COLORS[S.AUX_SLOTS.index(slot)]
+
+
+def _slot_family(slot):
+    """Which instrument a row belongs to. Used to GROUP BY POSITION rather than by hue.
+
+    Twelve rows from two ordinal instruments plus two endpoints is more identity than colour can
+    carry -- the dataviz rule is that a 9th series is never a generated hue. Every row here is
+    already named on the y axis and carries its AUC at the bar end, so colour only has to say
+    which family a row is in and roughly where it sits within it. A blank row between families
+    does the grouping far more strongly than any hue could, and costs nothing.
+    """
+    if slot < S.NSTAGE:
+        return "MMSE stage"
+    if slot in (F2.DEATH_IDX, F2.AD_IDX):
+        return "endpoint"
+    return "global cognition"
+
+
+def _row_label(slot):
+    """Display name. The stages are named Normal/Mild/... which does not say which instrument
+    they came from, so they are prefixed; the cognition levels already name themselves but are
+    shortened to fit."""
+    nm = F2.ALL_NAMES[slot]
+    if slot < S.NSTAGE:
+        return f"MMSE {nm}"
+    return nm.replace("Global cognition ", "cogn_global ").replace("<=", "≤").replace("..", " to ")
+
+
+def _grouped_ypos(slots, gap=0.9):
+    """Bar positions with a blank row wherever the family changes."""
+    y, cur = [], 0.0
+    for i, sl in enumerate(slots):
+        if i and _slot_family(sl) != _slot_family(slots[i - 1]):
+            cur += gap
+        y.append(cur)
+        cur += 1.0
+    return np.asarray(y)
+
+
+def _at_risk(df, slot):
+    """Who can be scored for "reaches `slot`".
+
+    A stage: everyone not already in it. Death / AD: everyone (neither can be present at
+    baseline in this stream -- prevalent AD is a STATIC, not an event). An auxiliary level:
+    everyone not already in it AND whose scale was recorded at baseline, because a subject with
+    no baseline value has no "already in it" to test and would otherwise be silently scored as
+    if they started at the bottom.
+    """
+    b = df["baseline_state"].to_numpy()
+    if slot < S.NSTAGE:
+        return b != slot
+    if slot in (F2.DEATH_IDX, F2.AD_IDX):
+        return np.ones(len(df), bool)
+    for sc in S.AUX_SCALES:
+        col = f"baseline_{sc}"
+        if slot in [sl for sl, _t in S.AUX_OF_SCALE[sc]]:
+            if col not in df.columns:
+                raise KeyError(f"{col} missing from the frame -- rebuild the Monte-Carlo cache "
+                               f"(figure2_core.py --build --force); the auxiliary scales were "
+                               f"added after it was written")
+            bc = df[col].to_numpy()
+            return (bc >= 0) & (bc != slot)
+    raise ValueError(f"slot {slot} belongs to no family")
 
 
 def compute_A(cache, horizon=H):
@@ -165,7 +249,7 @@ def compute_A(cache, horizon=H):
     rows = []
     for slot in state_targets():
         ep = F2.composite(df, grids, [slot])
-        at_risk = (b != slot) if slot < S.NSTAGE else np.ones(len(df), bool)
+        at_risk = _at_risk(df, slot)
         y_all = F2.labels_at_h(ep, horizon)
         s_all = ep["risk"][horizon]
         m = at_risk & (y_all >= 0) & np.isfinite(s_all)
@@ -336,8 +420,10 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
 
     # barh draws bottom-up, so reverse to read Normal -> Severe -> Death -> AD top-down
     t = tab.sort_values("slot", ascending=False).reset_index(drop=True)
-    ypos = np.arange(len(t))
-    colors = [_slot_colour(i) for i in t["slot"]]
+    slots = t["slot"].tolist()
+    ypos = _grouped_ypos(slots)
+    colors = [_slot_colour(i) for i in slots]
+    labels = [_row_label(i) for i in slots]
 
     # ---- a1: discrimination
     x0 = min(0.45, np.floor(float(np.nanmin(t["auc_lo"])) * 20) / 20)
@@ -346,15 +432,16 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
              error_kw=dict(ecolor="0.25", lw=1.1, capsize=2.5))
     ax1.axvline(0.5, ls=":", color="0.35", lw=1.2)
     ax1.set_yticks(ypos)
-    ax1.set_yticklabels([f"{r.label}  (n={r.n_events})" for r in t.itertuples()], fontsize=8.5)
+    ax1.set_yticklabels([f"{lb}  (n={r.n_events})" for lb, r in zip(labels, t.itertuples())],
+                        fontsize=8.5)
     ax1.set_xlim(x0, 1.06)
     ax1.set_xticks(np.arange(np.ceil(x0 * 10) / 10, 1.001, 0.1))
     ax1.set_xlabel(f"AUC for reaching this state within {horizon} y")
     ax1.set_title("Discrimination per state\n(at risk: not already in it at baseline)",
                   fontsize=10.5)
     ax1.grid(axis="y", alpha=0)
-    for i, r in enumerate(t.itertuples()):
-        ax1.text(1.055, i, f"{r.auc:.2f}", va="center", ha="right", fontsize=8)
+    for yy, r in zip(ypos, t.itertuples()):
+        ax1.text(1.055, yy, f"{r.auc:.2f}", va="center", ha="right", fontsize=8)
     # no colour legend needed: the y labels name the origin state, colour only groups them
 
     # ---- a2: observed vs predicted transition probability
@@ -363,7 +450,7 @@ def panel_A(fig, spec, cache, letter="a", horizon=H):
              label="observed (Aalen–Johansen)")
     ax2.barh(ypos - hgt / 2, t["pred_rate"], height=hgt, color=ps.OUTCOME_COLORS["stage"],
              edgecolor="white", label="predicted (Monte-Carlo)")
-    ax2.set_yticks(ypos); ax2.set_yticklabels(t["label"], fontsize=8.5)
+    ax2.set_yticks(ypos); ax2.set_yticklabels(labels, fontsize=8.5)
     ax2.set_xlabel(f"P(reach this state within {horizon} y)")
     cal = float(np.mean(t["pred_rate"] - t["obs_cif"]))
     ax2.set_title(f"Observed vs predicted rate\nmean predicted − observed = {cal:+.3f}",

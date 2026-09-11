@@ -106,6 +106,26 @@ def _stage_spec(res, mode=None):
         "figure fall back to something that silently means a different staging.")
 
 
+# --------------------------------------------------------------------------- auxiliary slots
+# Scales scored ALONGSIDE the staging in panel a1, one row per emitted level, without entering
+# the state space.
+#
+# THE DISTINCTION MATTERS AND IS LOAD-BEARING. A "state" is something a subject occupies: the
+# stages partition the MMSE levels, exactly one holds at any time, and panel c's stage-at-age
+# grid and the transition matrix walk that partition. An "auxiliary slot" is scored the same way
+# -- "does the subject reach this level within H years, among those not already in it" -- but it
+# is NOT in GRID_TOKENS, so it can never overwrite the stage on the grid. Putting global
+# cognition into the state space instead would make a subject's cognitive STAGE unreadable for
+# every grid year after a cogn_global token, because the carry-forward would latch onto the
+# wrong instrument.
+#
+# Global cognition is the right scale to add: vocab.py records that it is complementary rather
+# than redundant with MMSE (knowing one 4-level bin improves guessing the other by only 5-8 pp
+# over the marginal), that inside the MMSE 27-30 ceiling -- 73% of visits -- the cogn_global bin
+# lifts 5-year AD AUC from 0.750 to 0.846, and that it starts moving 3-4 years earlier than MMSE.
+AUX_SCALES = ("COG",)
+
+
 def configure(labels=None, mode=None):
     """Bind this module to a token table. Call once per checkpoint, before anything else.
 
@@ -117,6 +137,7 @@ def configure(labels=None, mode=None):
     global ALL_NAMES, NSLOT, GRID_SLOTS, GRID_NAMES, NSTATE
     global STAGE_TOKENS, GRID_TOKENS, ALL_TOKENS, TOK2SLOT
     global SCALE_IDS, SCALE_DIRECTED, EVENT_GROUPS, MODE
+    global AUX_SLOTS, AUX_FIRST, AUX_OF_SCALE
 
     RES = V.resolve(list(labels) if labels is not None else V.NAMES)
     MODE = mode or STAGE_MODE
@@ -127,15 +148,26 @@ def configure(labels=None, mode=None):
 
     DEATH, AD_DX = RES.DEATH, RES.AD_DX
     DEATH_IDX, AD_IDX = NSTAGE, NSTAGE + 1
-    ALL_NAMES = STAGE_NAMES + ["Death", "AD diagnosis"]
+    # stages | Death | AD | then one slot per level of each auxiliary scale
+    AUX_FIRST = NSTAGE + 2
+    aux_names, AUX_SLOTS, AUX_OF_SCALE = [], [], {}
+    for sc in AUX_SCALES:
+        ids = RES.SCALES.get(sc, ())
+        slots = list(range(AUX_FIRST + len(aux_names), AUX_FIRST + len(aux_names) + len(ids)))
+        AUX_OF_SCALE[sc] = list(zip(slots, ids))
+        AUX_SLOTS += slots
+        aux_names += [RES.NAMES[t] for t in ids]
+    ALL_NAMES = STAGE_NAMES + ["Death", "AD diagnosis"] + aux_names
     NSLOT = len(ALL_NAMES)
+    # The STATE space stops at Death. The auxiliary slots are deliberately absent from it.
     GRID_SLOTS = list(range(NSTAGE)) + [DEATH_IDX]
     GRID_NAMES = STAGE_NAMES + ["Death"]
     NSTATE = len(GRID_SLOTS)
 
     STAGE_TOKENS = tuple(t for g in STAGE_GROUPS for t in g)
     GRID_TOKENS = STAGE_TOKENS + (DEATH,)
-    ALL_TOKENS = GRID_TOKENS + (AD_DX,)
+    AUX_TOKENS = tuple(t for pairs in AUX_OF_SCALE.values() for _s, t in pairs)
+    ALL_TOKENS = GRID_TOKENS + (AD_DX,) + AUX_TOKENS
 
     # token id -> slot index, -1 for everything else. A lookup table rather than a .index()
     # call: the MC batch is (n_mc, T) and the per-element python call showed up in the profile.
@@ -145,6 +177,9 @@ def configure(labels=None, mode=None):
             TOK2SLOT[t] = i
     TOK2SLOT[DEATH] = DEATH_IDX
     TOK2SLOT[AD_DX] = AD_IDX
+    for pairs in AUX_OF_SCALE.values():
+        for slot, tok in pairs:
+            TOK2SLOT[tok] = slot
 
     SCALE_IDS = {k: tuple(v) for k, v in RES.SCALES.items()}
     SCALE_DIRECTED = {k: (k in RES.SEVERITY_ORDER) for k in SCALE_IDS}
@@ -238,6 +273,15 @@ def check():
         f"{sorted(set(RES.SCALES['MMSE']) - seen)}, extra {sorted(seen - set(RES.SCALES['MMSE']))}")
     assert DEATH not in seen and AD_DX not in seen
     assert TOK2SLOT[DEATH] == DEATH_IDX and TOK2SLOT[AD_DX] == AD_IDX
+    # the auxiliary levels must be scoreable but must NOT be part of the state grid, or the
+    # stage-at-age carry-forward in panel c would latch onto the wrong instrument
+    for sc, pairs in AUX_OF_SCALE.items():
+        assert [t for _s, t in pairs] == list(RES.SCALES[sc]), f"{sc} slots are not its levels"
+        for slot, tok in pairs:
+            assert tok not in GRID_TOKENS, f"{RES.NAMES[tok]} leaked into the state grid"
+            assert slot not in GRID_SLOTS and TOK2SLOT[tok] == slot
+            assert tok not in RES.IGNORE_TOKENS and tok != RES.NO_EVENT
+    assert len(set(ALL_NAMES)) == len(ALL_NAMES), "duplicate slot name"
     # every stage token must be one the model is actually trained to emit
     for t in STAGE_TOKENS + (DEATH, AD_DX):
         assert t not in RES.IGNORE_TOKENS and t != RES.NO_EVENT, \

@@ -94,14 +94,21 @@ echo "--- [1/3] Monte-Carlo + embedding build"
 DATASET="$(basename "$DATA")"                # both programs take the dir NAME under data/, not the path
 "$PY" -u figure2/figure2_core.py --build --ckpt "$CKPT" --dataset "$DATASET" --device "$DEVICE" --workers "$WORKERS" "$@"
 
+# BUILD-ONLY FLAGS MUST NOT REACH THE PLOT STEP. "$@" is forwarded to both programs so that
+# --limit and --n-mc apply consistently, but --force is a cache-invalidation flag that only the
+# builder understands, and argparse in figure2_panels.py exits 2 on an unknown argument -- so a
+# `--force` run rebuilt the cache and then died before drawing anything.
+PLOT_ARGS=()
+for a in "$@"; do case "$a" in --force) ;; *) PLOT_ARGS+=("$a") ;; esac; done
+
 # 2+3) two cohorts out of the SAME cache. "matched" restricts scoring to the patients train.py
 #      actually fitted on (>=2 predicted-event ages, OR >=2 + an MMSE staging transition) -- that is the paper
 #      figure. "all" scores the whole evaluable test split, ~43% of which is outside the training
 #      regime; kept as a generalisation check under *_allcohort names.
 echo "--- [2/3] panels a-d + combined figure   (cohort: matched -- the paper figure)"
-"$PY" -u figure2/figure2_panels.py --cohort matched --ckpt "$CKPT" --dataset "$DATASET" "$@"
+"$PY" -u figure2/figure2_panels.py --cohort matched --ckpt "$CKPT" --dataset "$DATASET" "${PLOT_ARGS[@]}"
 echo "--- [3/3] panels a-d + combined figure   (cohort: all -- generalisation check)"
-"$PY" -u figure2/figure2_panels.py --cohort all --ckpt "$CKPT" --dataset "$DATASET" "$@"
+"$PY" -u figure2/figure2_panels.py --cohort all --ckpt "$CKPT" --dataset "$DATASET" "${PLOT_ARGS[@]}"
 
 echo
 echo "=== DONE -> $(pwd)/results/figure2/"

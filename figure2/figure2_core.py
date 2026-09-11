@@ -297,6 +297,16 @@ def _process(args):
     row = dict(pid=int(k), projid=int(data[int(p2i[k, 0]), 0]),
                baseline_age=base_y, baseline_state=int(b), followup=fu,
                n_visits=n_visits, died=int(died), final_state=int(final_state))
+    # BASELINE SLOT FOR EACH AUXILIARY SCALE, needed for its at-risk rule: a subject already in
+    # a level cannot "reach" it. -1 means the scale was never recorded at or before baseline, and
+    # such a subject is EXCLUDED from that scale's rows rather than treated as level 0 -- under
+    # TV-gated emission a scale that was measured always emits at least its first value, so -1
+    # really does mean absent.
+    for _sc, _pairs in S.AUX_OF_SCALE.items():
+        _ids = [tok for _sl, tok in _pairs]
+        _m = np.isin(t, _ids) & (a <= base) & (a > NEG)
+        row[f"baseline_{_sc}"] = (int(S.TOK2SLOT[int(t[_m][np.argmax(a[_m])])]) if _m.any()
+                                  else -1)
     for i, nm in enumerate(ALL_NAMES):
         row[f"obs_t_{nm}"] = float(fp_obs[i])
     # predicted risk of reaching each slot by each horizon, competing with death
