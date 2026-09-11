@@ -20,8 +20,13 @@
 dataset = "nacc-dedup-s42"               # what data_prep/make_dataset.py --seed 42 builds
 out_dir = "out-delphi2m-dedup-mask-s42"  # trains on the DEDUP build (1.14M events)
 
-vocab_size = 111
-block_size = 96
+vocab_size = 228  # NACC vocab: 0=Padding, 1=No event, 2..227 content.
+                  # 111 -> 140 (CDRSUM split into 6 CDR boxes) -> 228 (FAQ total split
+                  # into 9 domains, NPI-Q total into 12 symptoms, GDS added).
+                  # See data_prep/tokenize_nacc_ad.py.
+block_size = 256            # 96 -> 256: at 55.4 tokens/patient (p95 100, max 250) a 96-window
+                            # truncated 6.0% of patients, and select='left' drops their LATEST
+                            # events -- exactly the conversions. 256 truncates nobody.
 
 t_min = 365.25 / 12
 
@@ -32,7 +37,8 @@ ignore_tokens = list(range(22))
 #
 # WAS 12/12/120 = 2,104,320 params, copied verbatim from the upstream Delphi-2M demo config
 # (vocab 1270, cohort ~100x larger). It was never chosen for THIS dataset. Changed on the
-# evidence of experiments/capacity -- 6 shapes x 3 seeds, 48 runs; see its RESULTS.md:
+# evidence of experiments/capacity -- 6 shapes x 3 seeds, 48 runs; see its RESULTS.md.
+# (experiments/ was removed from this branch; it is still there at commit dba88f8.)
 #
 #   * n_head 12 -> 6 (head_dim 10 -> 20) is free: identical parameter count, identical
 #     speed, and 5/5 downstream Figure-2 metrics improve by more than the seed sd.

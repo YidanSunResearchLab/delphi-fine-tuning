@@ -39,7 +39,13 @@ GOLDEN = os.path.join(HERE, "golden.npz")
 
 # ---------------------------------------------------------------- the fixed inputs
 # Tokens are MODEL space (== labels.csv row index): 0=Padding, 1=No-event, 3=Female,
-# 24..28=CDRSUM, 29..32=MOCA, 33..36=FAQ, 106..109=NACCUDSD, 110=Death.
+# 29..32=MOCA, 106..109=NACCUDSD, 110=Death, 111..139=CDR boxes, 140..175=FAQ domains,
+# 176..223=NPI-Q symptoms, 224..227=GDS.
+# NOTE: the fixtures below still use 24 and 33, which USED to be CDRSUM-Normal and FAQ-Normal
+# and are now retired dead slots. That is deliberate -- these inputs only have to be FIXED,
+# not meaningful, and golden.npz is pinned to the vocab-111 / block-96 checkpoint. When the
+# model is retrained at vocab_size=228, block_size=256, regenerate golden.npz and swap
+# 24 -> 111 (None(MEMORY)) and 33 -> 140 (Normal(BILLS)) at the same time.
 # Ages are DAYS from birth; -10000 is the padding age produced by get_batch.
 # These are SYNTHETIC. They do not need to be clinically realistic -- they only need to be
 # FIXED, and to collectively exercise every branch in Delphi.forward().

@@ -5,10 +5,15 @@ Thin wrapper over the two existing steps (kept separate so each is still runnabl
   1) tokenize_nacc_ad.py : raw NACC CSV -> out_ad/nacc_all.bin
         Dedup is applied HERE and baked into the .bin permanently:
         keep-first for non-cognitive tokens, KEEP-TRANSITIONS (per scale) for ALL
-        five cognitive scales -- NACCUDSD + CDR-SB + MoCA + FAST + NPI-Q
-        (see tokenize_nacc_ad.py). Nothing downstream re-derives it.
+        cognitive scales -- NACCUDSD + the six CDR box scores + MoCA + FAST + NPI-Q
+        (see tokenize_nacc_ad.py). Each CDR domain is its own scale, so a memory-only
+        decline survives. Nothing downstream re-derives it.
   2) make_split_ad.py    : nacc_all.bin -> out_ad/nacc-dedup-s<seed>/{train,val,test}.bin
         By-patient 70/10/20 (no patient crosses splits).
+  3) make_visit_sizes.py : nacc_all.bin -> out_ad/visit_sizes.npy
+        The tokens-per-visit distribution model.generate(visit_sizes=...) samples from.
+        It is a CALIBRATION CONSTANT OF THE TOKENIZATION -- it must be rebuilt whenever
+        the .bin is, or visit-batched sampling silently runs trajectories too slow.
 
 Reads the CSV from --csv. With no --csv it auto-finds investigator_nacc72.csv next to
 this script (Delphi-2M/), then <repo>/data/. You do NOT need to place/symlink it inside
@@ -84,6 +89,8 @@ def main():
 
     # 3) by-patient 70/10/20 split -> out_ad/nacc-dedup-s<seed>/
     run([sys.executable, os.path.join(SCRIPTS, "make_split_ad.py"), "--seed", str(args.seed)])
+    # rebuilt from the SAME .bin, every time -- see the module docstring, step 3
+    run([sys.executable, os.path.join(SCRIPTS, "make_visit_sizes.py")])
 
     split_dir = os.path.join(HERE, "out_ad", f"nacc-dedup-s{args.seed}")
 

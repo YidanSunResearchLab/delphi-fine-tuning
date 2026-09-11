@@ -1,4 +1,0 @@
-file,n_rows,n_cols,size_mb,n_projid,projid_duplicated_rows,grain
-cross-sectional-data-gk.xlsx,4428,24,0.67,4428,0,person-level (one row per projid)
-longitudinal_data_gk.xlsx,36138,29,5.55,4428,31710,visit-level (one row per projid x fu_year)
-ROSMAP_clinical.csv,3584,18,0.34,3584,0,person-level (one row per projid)

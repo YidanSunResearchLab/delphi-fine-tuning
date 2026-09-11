@@ -1,6 +1,0 @@
-reason,n,pct,available_in_release
-died (died==1),2745.0,61.99,yes -- cross-sectional-data-gk.died
-  of which: death age known and NOT top-coded,975.0,22.02,"ROSMAP_clinical.age_death (ROS+MAP only, 90+ top-coded)"
-  of which: last visit within 2 y of death,901.0,92.41,derived
-alive at data freeze (censored),1683.0,38.01,yes
-refused / lost to follow-up / administrative censoring,,,NO -- this release has no withdrawal-reason field; alive-but-stopped cannot be separated from still-active

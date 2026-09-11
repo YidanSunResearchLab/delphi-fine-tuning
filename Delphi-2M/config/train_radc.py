@@ -14,7 +14,8 @@
 #   NACC   16,262                                ~800k raw      1,412,160  (8L/6H/120d)
 #   RADC    2,390                                  81,513         304,321  (6L/4H/64d)
 #
-# 6.8x fewer subjects. The capacity sweep (experiments/capacity, 6 shapes x 3 seeds) picked
+# 6.8x fewer subjects. The capacity sweep (experiments/capacity @ dba88f8 -- the directory was
+# removed from this branch -- 6 shapes x 3 seeds) picked
 # 8L/6H/120d *for NACC*; that result does not transfer to a cohort this size. 6L/4H/64d is
 # ~4.6x smaller, slightly more generous than naive linear-in-subjects scaling (which points at
 # ~207k, i.e. 4L/4H/64d) because RADC trajectories are DENSER -- 30.3 events/subject vs NACC's

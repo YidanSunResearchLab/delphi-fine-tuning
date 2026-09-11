@@ -39,6 +39,7 @@ import torch
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Delphi-2M/ (package root)
 sys.path.insert(0, HERE)
 from delphi import predict_adapter as PA  # noqa: E402
+from figure2 import perdomain as PD  # noqa: E402
 
 log = logging.getLogger("fig2")
 
@@ -260,6 +261,12 @@ def _process(args):
     predM = np.zeros((NSTATE, NSTATE))
     _trans_counts_batch(A, T, predM)
     predM /= n                                   # per-patient expected counts
+
+    # ---------------- the other 28 scales (perdomain.py)
+    # Figure 2 itself scores only NACCUDSD; this reuses the trajectories already sampled above
+    # so the per-domain numbers describe the SAME sampled futures. Costs no extra MC.
+    row.update(PD.per_domain_row(ages, toks, A, T, base, GRID_YEARS, horizons,
+                                 death_sim=d_sim, obs_died_y=float(fp_obs[4])))
 
     row["traj_class"] = trajectory_class(b, fp_obs, died, final_state)
     # per-SAMPLE first-passage times (years after baseline, inf = never in that trajectory).

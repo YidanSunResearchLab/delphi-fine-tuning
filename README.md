@@ -37,7 +37,7 @@ separate claims (§12).
 > **These numbers predate the architecture change.** The reference run was measured with the
 > previous 12/12/120, 2.10M-param shape. The config now ships **8/6/120, 1.41M params** (§9.4),
 > so expect a smaller `ckpt.pt` (~17 MB) and a shorter ② — and slightly *better* Figure-2
-> discrimination, per [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md).
+> discrimination, per `experiments/capacity/RESULTS.md` (removed from this branch; see `dba88f8`).
 > The end-to-end run has **not** been repeated on the new shape.
 
 ### Contents
@@ -159,10 +159,11 @@ expects. Dataset, output dir and hyperparameters all come from the config; CLI f
 - **This config** = 8 layers / 6 heads / 120-dim, **1,412,160 params**, 5000 iters, with
   `ignore_tokens = 0..21` dropped from the **loss** — see §9.3 and §10. The architecture was
   changed away from the upstream Delphi-2M shape (12 layers / 12 heads, 2.10M params) on the
-  evidence of [`experiments/capacity/RESULTS.md`](experiments/capacity/RESULTS.md): 1.49× smaller,
+  evidence of `experiments/capacity/RESULTS.md` (at `dba88f8`): 1.49× smaller,
   ~1.6× faster, and better on every downstream Figure-2 metric.
-- **Superseded:** `config/train_nacc.py` (6 layers / 384-dim / 20k iters) overfit — val loss
-  bottomed near step 5000 then rose. `config/train_delphi2m.py` is the no-loss-mask ablation
+- **Removed:** `config/train_nacc.py` (6 layers / 384-dim / 20k iters) overfit — val loss
+  bottomed near step 5000 then rose. Deleted as superseded; still in history at `dba88f8`.
+  `config/train_delphi2m.py` is the no-loss-mask ablation
   baseline — but note that it, and every other `config/*.py`, still carries the **old 12/12/120**
   shape. It is therefore now an ablation of *both* the mask and the architecture; re-run it at
   8/6/120 before reading it as a clean mask ablation.
@@ -290,7 +291,7 @@ AD-projection/
     │
     ├── data_prep/               ①  raw CSV -> train/val/test splits
     │   ├── make_dataset.py          ENTRY POINT: wraps the two below + makes the data/ symlinks
-    │   ├── tokenize_nacc_ad.py      CSV -> out_ad/nacc_all.bin (5 cognitive scales, keep-transitions)
+    │   ├── tokenize_nacc_ad.py      CSV -> out_ad/nacc_all.bin (30 ordinal scales, keep-transitions)
     │   ├── make_split_ad.py         by-patient 70/10/20 (no subject crosses splits)
     │   └── Vocabulary NACC.xlsx     token index -> label table, read by the tokenizer
     │
@@ -298,9 +299,12 @@ AD-projection/
     │   ├── train.py                 ENTRY POINT: next-token CE + exponential time-to-event loss
     │   └── configurator.py          loads config/*.py, then applies CLI overrides
     ├── config/                      hyperparameters
-    │   ├── train_delphi2m_mask_dedup.py   << the DELIVERED model
-    │   ├── train_delphi2m.py              same, without the loss mask (ablation)
-    │   └── train_nacc.py                  superseded (10.8M params, overfit)
+    │   ├── train_delphi2m_mask_dedup.py   << the DELIVERED model (8L/6H/120d)
+    │   ├── train_itemsplit_s42.py         the item-split tokenisation (vocab 228, §8.5)
+    │   ├── train_delphi2m.py              same as delivered, without the loss mask (ablation)
+    │   ├── train_nofilter.py              same, without the cohort filter (ablation)
+    │   ├── train_cohort_sweep.py          the 4-cohort data-volume sweep; pick with COHORT=
+    │   └── train_radc.py                  the RADC/ROSMAP arm (its own vocab, 69)
     │
     ├── delphi/                  ⚙  the model and the one abstraction over it
     │   ├── model.py                 the transformer (age-encoding instead of positional)
@@ -355,7 +359,9 @@ Each clinical fact becomes a **token**. The tokenizer **deduplicates** so the st
 
 - **Non-cognitive tokens: keep-first** — each fact emitted once at age-of-first-onset
   (hypertension recorded at 5 visits → 1 token; sex/APOE → 1 ever).
-- **All five cognitive scales: keep-transitions, per scale** — NACCUDSD, CDR-SB, MoCA, FAQ and NPI-Q
+- **Every cognitive scale: keep-transitions, per scale** — NACCUDSD, the **six CDR box scores**
+  (`MEMORY` `ORIENT` `JUDGMENT` `COMMUN` `HOMEHOBB` `PERSCARE` — each its own scale, replacing the
+  single `CDRSUM` total; §8.5), MoCA, FAQ and NPI-Q
   are each a longitudinal ordinal *state*, so each is run-length-encoded **within its own scale**:
   first value + every bin **change** (decline *and* recovery), collapsing consecutive same-bin
   repeats.
@@ -416,7 +422,7 @@ Each step samples `batch_size` **patients** (with replacement); each becomes **e
 Returns `X` (tokens `(B,96)`), `A` (ages), `Y` (next token = `X` shifted left), `B` (age of the next
 token, for the time loss). Padding is excluded from both losses via a `pass_tokens` mask.
 
-### 8.5 Vocabulary (111 tokens) and the outcome encodings
+### 8.5 Vocabulary (228 tokens) and the outcome encodings
 
 Token order = clinical severity: **higher token = worse**. Raw→token thresholds come from
 `data_prep/tokenize_nacc_ad.py`.
@@ -431,45 +437,94 @@ Token order = clinical severity: **higher token = worse**. Raw→token threshold
 | 13–15 | Education | | ≤12 yr / 13–16 yr / ≥17 yr |
 | 16–21 | APOE genotype | | e3/e3, e3/e4, e3/e2, e4/e4, e4/e2, e2/e2 |
 | 22–23 | Senses | | Vision loss, Hearing loss |
-| **24–28** | **CDR-SB** | `CDRSUM` | 0→24; 0.5–4→25; 4.5–9→26; 9.5–12.5→27; 13–18→28 (higher=worse, raw 0–18) |
-| **29–32** | **MoCA** | `NACCMOCA` | 26–30→29; 18–25→30; 10–17→31; 0–9→32 (**raw lower=worse, token higher=worse**) |
-| **33–36** | **FAQ** | Σ 9 FAQ items | 0–4→33; 5–8→34; 9–12→35; 13–30→36 (higher=worse, sum 0–27) |
-| **37–40** | **NPI-Q** | NPI severity sum | Normal / Mild / Moderate behavioural symptoms |
+| ~~24–28~~ | ~~CDR-SB~~ | ~~`CDRSUM`~~ | **RETIRED** — replaced by the six CDR box scores at 111–139. Dead slots, kept so every other token id stays put. |
+| **29–32** | **MoCA** | `NACCMOCA` | 26–30→29; 18–25→30; 10–17→31; 0–9→32 (**raw lower=worse, token higher=worse**). Left as a TOTAL: its ~19 sub-items exist but MoCA is UDS-v3-only, 36% visit coverage |
+| ~~33–36~~ | ~~FAQ total~~ | ~~Σ 9 FAQ items~~ | **RETIRED** — replaced by the nine FAQ domains at 140–175 |
+| ~~37–40~~ | ~~NPI-Q total~~ | ~~NPI severity sum~~ | **RETIRED** — replaced by the twelve NPI-Q symptoms at 176–223 |
 | 41–59 | Medications | | Antihypertensives (41–49), lipid-lowering (50), **55 = FDA-approved AD medication**, diabetes (59), SSRIs, … |
 | 60–105 | Medical conditions | | CVD, stroke, TIA, diabetes, Parkinson's, psychiatric (ICD-10) |
 | **106–109** | **NACCUDSD** | `NACCUDSD` | 1→106 Normal; 2→107 Impaired-not-MCI; 3→108 MCI; 4→109 Dementia |
 | **110** | **Death** | `NACCDIED` + `NACCYOD/MOD` | died→110 at age = death_date − birth; else right-censored |
+| **111–139** | **CDR box scores** (6 domains) | `MEMORY` `ORIENT` `JUDGMENT` `COMMUN` `HOMEHOBB` `PERSCARE` | raw level → token, no binning: 0 / 0.5 / 1 / 2 / 3 → 5 tokens per domain. `PERSCARE` has **no 0.5 level** → 4 tokens. Blocks: MEMORY 111–115, ORIENT 116–120, JUDGMENT 121–125, COMMUN 126–130, HOMEHOBB 131–135, PERSCARE 136–139 |
+| **140–175** | **FAQ domains** (9) | `BILLS` `TAXES` `GAMES` `STOVE` `MEALPREP` `EVENTS` `PAYATTN` `REMDATES` `TRAVEL` | raw level → token: 0 Normal / 1 has difficulty / 2 needs assistance / 3 dependent. 4 tokens per domain, in the order listed (BILLS 140–143 … TRAVEL 172–175). Code 8 "never did this activity" → 0 |
+| **176–223** | **NPI-Q symptoms** (12) | `DELSEV` `HALLSEV` `AGITSEV` `DEPDSEV` `ANXSEV` `ELATSEV` `APASEV` `DISNSEV` `IRRSEV` `MOTSEV` `NITESEV` `APPSEV` | 0 absent / 1 mild / 2 moderate / 3 severe. 4 tokens per symptom (DEL 176–179 … APP 220–223). Severity is only recorded when the symptom is present, so the level is severity-if-present, 0-if-administered-and-absent, nothing if not administered |
+| **224–227** | **GDS** (new) | `NACCGDS` | 0–4→224 Normal; 5–8→225 Mild; 9–11→226 Moderate; 12–15→227 Severe. The 15-item total, **not** per item — the items are binary and flip constantly (30 tokens, ~991k events); the total is 86.7% covered for 4 tokens |
 
 > **Naming caveat:** tokens 33–36 are the 9-item **Functional Activities Questionnaire** sum. Older
 > code and comments call this "FAST"/"FASTOTAL" — it is **not** Reisberg FAST staging. Renamed to
 > FAQ throughout the evaluation on 2026-07-22; the underlying tokens are unchanged.
+
+> **Why every sum-score is now its items.** Three totals were retired the same way and for
+> the same reasons — `CDRSUM` (was 24–28), the FAQ total (33–36) and the NPI-Q total (37–40).
+> A total is a deterministic function of its items, so feeding both is redundant *and* is
+> same-visit leakage; and summing destroys **which domain moved**, which is itself a
+> prediction target here, not just a feature. Splitting FAQ also retires
+> `FAST_REQUIRE_COMPLETE`: the old all-or-nothing rule discarded 3,773 visits (1.8%) that had
+> at least one valid item, and now each domain stands alone. The worked case:
+>
+> **Why CDR is six scales and not one.** `CDRSUM` is the arithmetic sum of the six box scores —
+> on every row where both are present they agree exactly — so feeding the model both the total
+> and the boxes would be pure redundancy *and* same-visit leakage. The total also has a lumpy
+> support: several nominal 0.5-steps in 0–18 are structurally unreachable, because `PERSCARE`
+> contributes no 0.5. Splitting into six scales gives six clean ordinal supports, and lets a
+> memory-only decline register while the other five domains sit still — which the sum cannot
+> represent. Cost across all three splits: **1.14M → 3.06M events** and 113 token ids
+> instead of 13.
+> `PERSCARE` is the weakest of the six (83% of visits sit at 0) and was flagged `drop` by
+> `eda_round3`; it is kept here by explicit decision.
 
 NPI-Q exists but is not one of the five headline outcomes (treat as extra).
 
 ### 8.6 Worked example — a 5-visit patient
 
 ```
-age 70y : Female, APOE e3/e4, BMI_mid, NACCUDSD-Normal, CDR-Normal, MoCA-Normal → 6 events  (baseline)
-age 72y : NACCUDSD-MCI, MoCA-MCI                       → 2 events   (cognitive transitions)
-age 74y : Hypertension, SSRIs, CDR-VeryMild            → 3 events   (new facts + CDR change)
-age 75y : (nothing changed on any scale)               → 0 events   (nothing new)
-age 77y : NACCUDSD-Dementia, CDR-Mild, FAQ-Moderate    → 3 events   (transitions)
-                                                       ≈ 14 events total
+age 70y : Female, APOE e3/e4, BMI_mid + the FIRST value of all 30 scales
+          (NACCUDSD, MoCA, 6 CDR domains, 9 FAQ domains, 12 NPI symptoms,
+          GDS) — the baseline visit is now the big one   → ~35 events (baseline)
+age 72y : NACCUDSD-MCI, MoCA-MCI, Memory-Questionable,
+          REMDATES-Difficulty                            → 4 events   (transitions)
+age 74y : Hypertension, SSRIs, Memory-Mild,
+          Judgment-Questionable, DEPD-Mild, GDS-Mild     → 6 events   (new facts + changes)
+age 75y : (nothing changed on any scale)                 → 0 events   (nothing new)
+age 77y : NACCUDSD-Dementia, Memory-Moderate, Orient-Mild,
+          BILLS-Dependent, TAXES-Dependent, APA-Moderate → 6 events   (transitions)
+                                                         ≈ 51 events total
 ```
 
 Each cognitive **scale** contributes a token only when *its* bin changes, so one visit can add
-several cognitive tokens. The whole patient still fits in the 96-token window, seen in one pass.
+several cognitive tokens — and with every sum-score split into items there are **30 scales**, so
+the baseline visit in particular is large. This is why `block_size` moved 96 → **256**: at a mean
+of 55.4 tokens/patient (p95 100, max 250) a 96-window truncated **6.0% of patients**, and since
+training runs `select='left'` the part it drops is their *latest* events — the conversions. Those
+3,328 patients are not a random 6%: **86% of them have a dementia record against 41% overall**.
+At 256 nobody is truncated and the whole patient is still seen in one pass.
 
 ### 8.7 Reference distributions (test split)
 
-Useful for sanity-checking a rebuild. **228,057 events / 11,055 patients**; events per patient
-median 20 (mean 20.6, max 62); age span 18–106 y; 19,234 static (age-0) tokens.
+Useful for sanity-checking a rebuild. **611,673 events / 11,055 patients**; events per patient
+median 48 (mean 55.3, max 224); age span 18–106 y; 19,234 static (age-0) tokens.
+(This split was 228,057 events before any sum-score was split, and 310,241 after CDR only. The
+patient membership never changed — same seed, same by-patient split — so every count below that
+does not involve a split scale is byte-identical across all three versions.)
 
 - **Death:** present for **3,034 / 11,055 (27.4%)** → 72.6% right-censored.
 - **NACCUDSD:** every patient has ≥1, but only **2,447 (22%) have ≥2** — i.e. a transition to forecast.
-- Per-level counts — CDRSUM 24–28: 5481 / 6248 / 2984 / 1275 / 1339 · MoCA 29–32: 3050 / 3540 /
-  1073 / 444 · FAQ 33–36: 7451 / 2080 / 1585 / 3650 · NACCUDSD 106–109: 5438 / 1174 / 3778 / 4673 ·
-  Death 110: 3034.
+- MoCA 29–32: 3050 / 3540 / 1073 / 444 · NACCUDSD 106–109: 5438 / 1174 / 3778 / 4673 · Death 110: 3034.
+- GDS 224–227 (Normal / Mild / Moderate / Severe): 9950 / 2554 / 703 / 258.
+- CDR boxes, per level (None / Questionable / Mild / Moderate / Severe) —
+  MEMORY 111–115: 5852 / 4923 / 3715 / 2022 / 1001 · ORIENT 116–120: 7829 / 3290 / 2898 / 1688 / 997 ·
+  JUDGMENT 121–125: 6977 / 4272 / 3528 / 1620 / 1155 · COMMUN 126–130: 7525 / 3151 / 2869 / 2010 / 908 ·
+  HOMEHOBB 131–135: 7671 / 3209 / 2854 / 1853 / 1273 · PERSCARE 136–139 (no Questionable level):
+  9822 / 2257 / 1357 / 985.
+- FAQ domains, per level (Normal / Difficulty / Assistance / Dependent) —
+  BILLS 8085/1838/1854/3466 · TAXES 8201/1669/1779/3665 · GAMES 8934/2530/1838/2141 ·
+  STOVE 9413/2102/1360/2120 · MEALPREP 8844/1844/1678/2807 · EVENTS 8533/3013/2220/2200 ·
+  PAYATTN 8751/3542/2107/1631 · REMDATES 7468/3597/3123/2992 · TRAVEL 7901/2553/1781/3683.
+- NPI-Q symptoms, per level (Absent / Mild / Moderate / Severe) —
+  DEL 10575/1087/654/269 · HALL 10559/762/347/158 · AGIT 10608/3194/1759/506 ·
+  DEPD 10392/4601/2186/488 · ANX 10526/4051/2289/581 · ELAT 10708/614/294/57 ·
+  APA 10130/3239/2137/915 · DISN 10627/1935/1068/417 · IRR 10556/4321/2142/582 ·
+  MOT 10546/1596/1016/469 · NITE 10891/3365/2092/748 · APP 10949/2950/1551/508.
 
 ---
 
@@ -481,10 +536,10 @@ A causally-masked transformer (`delphi/model.py`) with three departures from van
 
 ```
 Delphi.forward(idx, age, targets=None, targets_age=None, validation_loss_mode=False)
-    idx : LongTensor  (B, T)   model-space token ids (0..110)
+    idx : LongTensor  (B, T)   model-space token ids (0..227)
     age : FloatTensor (B, T)   age in DAYS from birth (float)
     returns (logits, loss, att)
-      logits : (B, T, vocab=111)   per-position next-event scores
+      logits : (B, T, vocab=228)   per-position next-event scores
       loss   : dict{loss_ce, loss_dt} if targets given, else None
       att    : stacked attention maps
 
@@ -496,14 +551,24 @@ Delphi.generate(idx, age, max_new_tokens, max_age, no_repeat=True, termination_t
 
 **Two heads share the one `logits` tensor:**
 
-1. **Categorical next-state** = `softmax(logits)` over the 111 tokens.
+1. **Categorical next-state** = `softmax(logits)` over the 228 tokens.
 2. **Time-to-next-event** = the *same* logits as **log-rates of competing exponentials**. Next
    `(token, Δt)` is drawn as `Δt_k = -exp(-logit_k)·log U`, take the min over k. Total intensity
    `λ = Σ_k exp(logit_k)`; `E[Δt] ≈ 1/λ`. **Units: days.**
 
-Config baked into the checkpoint's `model_args` (read back by `load_model`):
+Config baked into the **delivered** checkpoint's `model_args` (read back by `load_model`):
 `block_size=96, vocab_size=111, n_layer=8, n_head=6, n_embd=120, t_min=30.4375 (≈1 month),
 mask_ties=True, ignore_tokens=[0..21]`. **1,412,160 params.**
+
+> ⚠️ **`ckpt.pt` predates the sum-score split.** It was trained at `vocab_size=111, block_size=96`,
+> when 24–28 / 33–36 / 37–40 were the CDRSUM, FAQ and NPI-Q totals. The tokenizer now emits
+> `vocab_size=228` with 30 per-item scales, so the shipped checkpoint **must not be run against
+> the current data**: its embedding and tied head are 117 rows short and its context is 160
+> positions short. `load_model` reads `vocab_size` back out of the checkpoint, so
+> it will happily build the old 111-token model and only blow up later, as an `IndexError` the
+> first time a CDR-box token is looked up — or, worse, score correctly on a slice that happens to
+> contain none. Pass `expect_vocab_size=140` to `delphi/model.py::load_checkpoint` if you want that
+> caught at load time. Retraining is required; §9.4 and §11 describe the old model until then.
 
 ### 9.2 Age encoding, and same-visit attention masking
 
@@ -535,8 +600,8 @@ Its consequence is the single most important thing to know about this model → 
 
 | Parameter | Value | |
 |---|---|---|
-| Vocabulary / block size | 111 / 96 | |
-| Layers / heads / embedding | 8 / 6 / 120 | 1,412,160 params, head_dim 20 — chosen in `experiments/capacity`, **not** inherited |
+| Vocabulary / block size | 111 / 96 | **as trained.** The tokenizer now emits 228 / 256 (§8.5) — retrain needed |
+| Layers / heads / embedding | 8 / 6 / 120 | 1,412,160 params, head_dim 20 — chosen in `experiments/capacity` (at `dba88f8`), **not** inherited |
 | Dropout / token dropout | 0.0 / 0.0 | |
 | `ignore_tokens` | `0..21` | §9.3 |
 | `t_min` | `365.25/12` (~1 month) | **do not lower** — see below |
@@ -632,10 +697,18 @@ This is the direct payoff of the tokenizer design.
 
 Confirmed with the project owner; the evaluation implements these.
 
-1. **"Worsening" = any ≥1-bin forward token transition** for CDRSUM / MoCA / FAQ. NACCUDSD
-   conversions are read as forward stage transitions, with **→MCI (108)** and **→Dementia (109)**
-   called out separately. Death is its own event. MoCA is handled so "worse" = higher token despite
-   the inverted raw scale.
+1. **"Worsening" = any ≥1-bin forward token transition.** As confirmed, this named
+   *CDRSUM / MoCA / FAQ*. Two of those three no longer exist as tokens — the item split retired
+   the CDRSUM and FAQ totals — so the sentence cannot stand as written. **⚠️ NOT RE-CONFIRMED:**
+   the mechanical substitution is "the 6 CDR domains and the 9 FAQ domains in place of their
+   totals", but whether the decision should now extend to the 12 NPI-Q symptoms and GDS — i.e.
+   whether a single NPI symptom flickering counts as "worsening" — is a *new* question that was
+   never put to the project owner. Do not read the broader version as agreed.
+   NACCUDSD conversions are read as forward stage transitions, with **→MCI (108)** and
+   **→Dementia (109)** called out separately; that part is untouched by the split, and it is what
+   `figure2/` actually implements (it scores the 4 NACCUDSD states + Death, and never reads the
+   other scales). Death is its own event. MoCA is handled so "worse" = higher token despite the
+   inverted raw scale.
 2. **Time-to-event via Monte-Carlo trajectory sampling, `n_mc = 100`** — not closed-form; forced by §10.
 3. Conversion endpoints use **competing-risks CIF** (death competes), not naive Kaplan–Meier.
 4. **`FASTOTAL` → renamed `FAQ`** everywhere (tokens 33–36 unchanged).

@@ -107,7 +107,7 @@ def main():
 
     print(f"[strict] DONE -> {out}/   {kept_total:,} patients total")
     print("  next:")
-    print("    python training/train.py config/train_delphi2m_strict.py --device=cuda")
+    print("    COHORT=strict python training/train.py config/train_cohort_sweep.py --device=cuda")
 
 
 if __name__ == "__main__":
