@@ -571,9 +571,82 @@ def test_rollout_probe(data_dir):
           f"{mh['probe/frac_no_death']:.3f} vs {ml['probe/frac_no_death']:.3f}")
 
 
+
+# ============================================================ figure2 state mapping
+def test_figure2_states():
+    """The Figure-2 RADC mapping. These are the invariants that keep the ported panels honest.
+
+    radc_states.check() runs on import, so the partition and id assertions are already live;
+    this covers the things a silent change could still break.
+    """
+    print("\nfigure2 state mapping")
+    from figure2 import radc_states as S
+
+    # the stages must partition the MMSE levels, worst-last
+    check("stages partition the MMSE levels",
+       sorted(t for g in S.STAGE_GROUPS for t in g) == sorted(V.SCALES["MMSE"]),
+       f"{len(S.STAGE_TOKENS)} tokens in {S.NSTAGE} stages")
+    # severity must INCREASE with stage index, the opposite of vocab.SEVERITY_ORDER's order.
+    # Getting this backwards scores recovery as decline and nothing errors.
+    worst_first = list(V.SEVERITY_ORDER["MMSE"])
+    idx_of = {t: worst_first.index(t) for t in worst_first}
+    means = [sum(idx_of[t] for t in g) / len(g) for g in S.STAGE_GROUPS]
+    check("severity increases with stage index",
+       all(means[i] > means[i + 1] for i in range(len(means) - 1)),
+       f"mean worst-first index per stage {[round(m, 1) for m in means]}")
+    check("Death closes the state space", S.DEATH_IDX == S.NSTAGE and S.NSTATE == S.NSTAGE + 1)
+    check("AD is an event slot, not a state",
+       S.AD_IDX not in S.GRID_SLOTS and S.AD_DX not in S.GRID_TOKENS)
+    check("slot_of maps every stage token", all(S.slot_of([t])[0] >= 0 for t in S.STAGE_TOKENS))
+    check("slot_of rejects a non-state token", S.slot_of([V.NO_EVENT])[0] == -1)
+
+    # trajectory_class: AD outranks stage worsening, and a subject at the worst stage
+    # cannot "progress (stage)"
+    inf = float("inf")
+    fp = [inf] * S.NSLOT; fp[S.AD_IDX] = 2.0; fp[1] = 1.0
+    check("AD outranks stage worsening",
+       S.trajectory_class(0, fp, False, 1) == "Progressed to AD")
+    fp = [inf] * S.NSLOT; fp[0] = 3.0
+    check("a move to a better stage is Improved",
+       S.trajectory_class(2, fp, False, 0) == "Improved")
+    fp = [inf] * S.NSLOT; fp[S.DEATH_IDX] = 4.0
+    check("death without progression is its own class",
+       S.trajectory_class(0, fp, True, 0) == "Died, no progression")
+
+    # the palette guard: no two outcomes may share a colour
+    from figure2 import plotting_style as ps
+    cols = list(ps.OUTCOME_COLORS.values())
+    check("no two outcomes share a colour", len(cols) == len(set(cols)),
+       f"{len(cols)} outcomes")
+    check("severity ramp sizes to the stage count",
+       len(ps.severity_ramp(S.NSTAGE)) == S.NSTAGE and
+       len(ps.severity_ramp(7)) == 7)
+
+    # perdomain must cover every predicted content token that is not a stage or an endpoint
+    from figure2 import perdomain as PD
+    covered = set(t for ids in PD.SCALE_IDS.values() for t in ids)
+    covered |= set(t for _n, ids in PD.EVENTS for t in ids)
+    expected = set(range(V.VOCAB_SIZE)) - set(V.IGNORE_TOKENS) - {V.NO_EVENT, V.AD_DX, V.DEATH}
+    check("perdomain covers every other predicted token", covered == expected,
+       f"{len(covered)} tokens in {len(PD.ALL_OUTCOMES)} outcomes")
+    check("BMI is scored undirected", PD.SCALE_DIRECTED["BMI"] is False and
+       PD.SCALE_DIRECTED["MMSE"] is True)
+    # the direction trap: adverse must be the LOWER index for a cognitive scale
+    check("adverse is the lower index for MMSE",
+       PD._adverse_bins(list(V.SCALES["MMSE"]), 4, True) == [0, 1, 2, 3])
+    check("adverse is either side for BMI",
+       PD._adverse_bins(list(V.SCALES["BMI"]), 1, False) == [0, 2])
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", default=os.path.join(_ROOT, "data", "radc-s42"))
+    # DEFAULT IS THE LIVE BUILD, not a historical one. This used to say "radc-s42" (v1),
+    # so running the suite bare checked the current vocabulary against a two-vocabularies-ago
+    # tokenization and reported a vocabulary FAIL plus a KeyError -- the same stale-default
+    # failure the eval scripts had before RADC_DATA_DIR was introduced.
+    ap.add_argument("--data-dir",
+                    default=os.environ.get("RADC_DATA_DIR",
+                                           os.path.join(_ROOT, "data", "radc-v3-s42")))
     ap.add_argument("--radc-dir", default=os.path.join(_ROOT, "data", "RADC"))
     ap.add_argument("--full", action="store_true", help="also rebuild the dataset (~1 min)")
     a = ap.parse_args()
@@ -585,6 +658,7 @@ def main():
     test_generation()
     test_missing_ad_label()
     test_dataset(a.data_dir)
+    test_figure2_states()
     test_missing_ad_label_data(a.data_dir)
     test_rollout_probe(a.data_dir)
     if a.full:

@@ -48,7 +48,7 @@ import torch
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 from radc_delphi.model import Delphi, DelphiConfig          # noqa: E402
-from radc_delphi.batching import get_p2i, get_batch         # noqa: E402
+from radc_delphi.batching import get_p2i, get_batch, filter_cohort   # noqa: E402
 from radc_delphi.softlabel import SoftBinner                # noqa: E402
 
 # -----------------------------------------------------------------------------
@@ -315,43 +315,6 @@ print(f"[train] dataset {dataset}: {len(train_data):,} train / {len(val_data):,}
 print(f"[train] vocab_size {vocab_size} (labels {vocab_sig}) | data {data_sig}")
 
 
-def filter_cohort(data, p2i, min_visits, short_min_visits, stage_disk, ignored_disk=()):
-    """Keep subjects with >= min_visits distinct PREDICTED-event ages, OR >= short_min_visits
-    of them AND >= 2 tokens from the staging scale -- which, after keep-transitions dedup,
-    means the staged state changed at least once.
-
-    "PREDICTED-event" excludes the static block, and that exclusion is the whole point of the
-    `ignored_disk` argument. The statics sit one day before the baseline visit, so counting
-    every distinct age gives every subject in this cohort at least two by construction and the
-    filter silently becomes a no-op -- measured: 3,101 of 3,101 training subjects "pass" at
-    min_visits = 2. Counting only ages that carry a token the model is actually asked to
-    predict gives 2,801, which is the intended population.
-
-    NOTE what "visits" still means after that fix. Keep-transitions collapses a visit at which
-    nothing changed, so this counts distinct ages that CARRY an event, not clinic attendances:
-    2,801 here against 2,822 subjects with >= 2 recorded visits. The 21 in the gap attended
-    twice and produced a token only once, so they genuinely have nothing to predict, and
-    dropping them is the behaviour we want rather than a discrepancy to paper over.
-    """
-    if not min_visits or min_visits <= 1:
-        return p2i
-    ages = np.asarray(data[:, 1])
-    toks = np.asarray(data[:, 2])
-    stage = np.asarray(stage_disk, dtype=np.int64)
-    ignored = np.asarray(list(ignored_disk), dtype=np.int64)
-    keep = np.zeros(len(p2i), dtype=bool)
-    for k in range(len(p2i)):
-        s, n = int(p2i[k, 0]), int(p2i[k, 1])
-        a, t = ages[s:s + n], toks[s:s + n]
-        m = (a > 0)
-        if ignored.size:
-            m &= ~np.isin(t, ignored)
-        nv = np.unique(a[m]).size
-        if nv >= min_visits:
-            keep[k] = True
-        elif nv >= short_min_visits and stage.size:
-            keep[k] = int(np.isin(t, stage).sum()) >= 2
-    return p2i[keep]
 
 
 if cohort_min_visits and cohort_min_visits > 1:
