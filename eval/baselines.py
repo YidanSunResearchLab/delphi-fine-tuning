@@ -404,7 +404,10 @@ def baseline_prefix_auc(data_dir, radc_dir, outcome="ad", splits=("train", "val"
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--data-dir", default="data/radc-s42")
+    # Default follows RADC_DATA_DIR when set. A hardcoded split name here is the same class
+    # of bug as a hardcoded vocab size: the run succeeds against the WRONG dataset and only
+    # the checkpoint fingerprint downstream catches it.
+    ap.add_argument("--data-dir", default=os.environ.get("RADC_DATA_DIR", "data/radc-s42"))
     ap.add_argument("--radc-dir", default="data/RADC")
     ap.add_argument("--split", default="trainval", choices=["trainval", "val", "test"],
                     help="trainval: CV over pooled train+val. val/test: fit on the earlier "

@@ -16,6 +16,9 @@ BASE="${AD_BASE:-/storage3/fs1/mdan/Active/secure-ad-comorbidity/huang.yi1/AD091
 source /storage3/fs1/mdan/Active/secure-ad-comorbidity/huang.yi1/AD0718/miniforge3/etc/profile.d/conda.sh
 conda activate ad-projection
 export MKL_THREADING_LAYER=GNU PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1
+# every eval script reads this; a hardcoded split name is how the last run scored
+# baselines against the wrong dataset before the fingerprint guard stopped the rest
+export RADC_DATA_DIR="${RADC_DATA_DIR:-data/radc-v3-s42}"
 cd "$BASE"; mkdir -p logs results/figures
 nvidia-smi --query-gpu=name --format=csv,noheader
 OUT="${OUT:-out-radc-v3-final}"

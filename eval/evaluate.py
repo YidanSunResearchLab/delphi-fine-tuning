@@ -826,7 +826,7 @@ def report(res):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--data-dir", default="data/radc-s42")
+    ap.add_argument("--data-dir", default=os.environ.get("RADC_DATA_DIR", "data/radc-s42"))
     ap.add_argument("--radc-dir", default="data/RADC",
                     help="raw RADC files; needed for the baseline-impairment flag")
     ap.add_argument("--split", default="val", choices=["train", "val", "test"],

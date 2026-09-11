@@ -1090,7 +1090,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Adversarial leakage audit of a RADC Delphi checkpoint.")
     ap.add_argument("--ckpt", default="out-radc-base-s42/ckpt.pt")
-    ap.add_argument("--data-dir", default=os.path.join(_HERE, "data", "radc-s42"))
+    ap.add_argument("--data-dir", default=os.environ.get(
+        "RADC_DATA_DIR", os.path.join(_HERE, "data", "radc-s42")))
     ap.add_argument("--radc-dir", default=os.path.join(_HERE, "data", "RADC"),
                     help="the raw files -- eval.cohort needs them for baseline_impaired")
     ap.add_argument("--split", default="val",
@@ -1140,7 +1141,7 @@ def main(argv=None):
         assert labels[-1] == CANARY_NAME and len(labels) == V.VOCAB_SIZE == 51, \
             f"--canary but {a.data_dir}/labels.csv is not a canary build"
     else:
-        assert len(labels) == V.VOCAB_SIZE == 50, \
+        assert len(labels) == V.VOCAB_SIZE, \
             f"{a.data_dir}/labels.csv has {len(labels)} rows, the vocabulary has {V.VOCAB_SIZE}"
         assert CANARY_NAME not in labels, \
             f"THE CANARY IS IN A PRODUCTION VOCABULARY: {a.data_dir}/labels.csv"
