@@ -1,0 +1,406 @@
+{
+ "split": "test",
+ "mode": "holdout",
+ "cohort": "evaluation",
+ "score_splits": [
+  "test"
+ ],
+ "fit_splits": [
+  "train",
+  "val"
+ ],
+ "seeds": 10,
+ "folds": 5,
+ "n_boot": 1000,
+ "horizons": [
+  1,
+  3,
+  5
+ ],
+ "min_lead_years": [
+  0.0,
+  1.0,
+  2.0
+ ],
+ "n_subjects_scored": 773,
+ "results": [
+  {
+   "baseline": "B1",
+   "target": "ever-AD",
+   "n": 773,
+   "n_pos": 233,
+   "n_subjects": 773,
+   "auc": 0.7530201875695438,
+   "sd": NaN,
+   "ci": [
+    0.7179988385544274,
+    0.7851542160603522
+   ],
+   "reference": 0.6858
+  },
+  {
+   "baseline": "B1",
+   "target": "death",
+   "n": 773,
+   "n_pos": 483,
+   "n_subjects": 773,
+   "auc": 0.8845791390019275,
+   "sd": NaN,
+   "ci": [
+    0.8574806151363721,
+    0.9093237468430524
+   ],
+   "reference": 0.8783
+  },
+  {
+   "baseline": "B1",
+   "target": "AD<=1y@bl",
+   "n": 727,
+   "n_pos": 10,
+   "n_subjects": 727,
+   "auc": 0.7191073919107391,
+   "sd": NaN,
+   "ci": [
+    0.532274695853407,
+    0.9099359762997694
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B1",
+   "target": "AD<=3y@bl",
+   "n": 643,
+   "n_pos": 56,
+   "n_subjects": 643,
+   "auc": 0.8043015332197615,
+   "sd": NaN,
+   "ci": [
+    0.7527200999113729,
+    0.8548428043020747
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B1",
+   "target": "AD<=5y@bl",
+   "n": 571,
+   "n_pos": 97,
+   "n_subjects": 571,
+   "auc": 0.7925094610465875,
+   "sd": NaN,
+   "ci": [
+    0.7500510924895569,
+    0.8367847658602638
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B2",
+   "target": "ever-AD",
+   "n": 773,
+   "n_pos": 233,
+   "n_subjects": 773,
+   "auc": 0.7780877443967573,
+   "sd": NaN,
+   "ci": [
+    0.7437769588234623,
+    0.8088849954401499
+   ],
+   "reference": 0.7207
+  },
+  {
+   "baseline": "B2",
+   "target": "death",
+   "n": 773,
+   "n_pos": 483,
+   "n_subjects": 773,
+   "auc": 0.8869993574641251,
+   "sd": NaN,
+   "ci": [
+    0.8613550510659741,
+    0.9100555439002227
+   ],
+   "reference": 0.8853
+  },
+  {
+   "baseline": "B2",
+   "target": "AD<=1y@bl",
+   "n": 727,
+   "n_pos": 10,
+   "n_subjects": 727,
+   "auc": 0.8892608089260808,
+   "sd": NaN,
+   "ci": [
+    0.740151147396293,
+    0.9718272778324148
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B2",
+   "target": "AD<=3y@bl",
+   "n": 643,
+   "n_pos": 56,
+   "n_subjects": 643,
+   "auc": 0.9214833292771965,
+   "sd": NaN,
+   "ci": [
+    0.8955414151381472,
+    0.946106165029532
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B2",
+   "target": "AD<=5y@bl",
+   "n": 571,
+   "n_pos": 97,
+   "n_subjects": 571,
+   "auc": 0.8799208317021183,
+   "sd": NaN,
+   "ci": [
+    0.8469785756107353,
+    0.9132356742376193
+   ],
+   "reference": null
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=1y",
+   "n": 3340,
+   "n_pos": 164,
+   "n_subjects": 727,
+   "auc": 0.9433825336364196,
+   "sd": NaN,
+   "ci": [
+    0.9282394896404935,
+    0.9564307759799178
+   ],
+   "reference": null,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 155,
+   "n_dropped_censored": 247
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=3y",
+   "n": 2850,
+   "n_pos": 420,
+   "n_subjects": 641,
+   "auc": 0.9173789927493632,
+   "sd": NaN,
+   "ci": [
+    0.9002674196194098,
+    0.9323802606987567
+   ],
+   "reference": null,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=5y",
+   "n": 2461,
+   "n_pos": 639,
+   "n_subjects": 569,
+   "auc": 0.8946565108420986,
+   "sd": NaN,
+   "ci": [
+    0.8753500367321555,
+    0.9134352797127878
+   ],
+   "reference": 0.894,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=1y",
+   "n": 3340,
+   "n_pos": 164,
+   "n_subjects": 727,
+   "auc": 0.9544180438655773,
+   "sd": NaN,
+   "ci": [
+    0.9430172570197327,
+    0.9642244854542406
+   ],
+   "reference": null,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 155,
+   "n_dropped_censored": 247
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=3y",
+   "n": 2850,
+   "n_pos": 420,
+   "n_subjects": 641,
+   "auc": 0.9256143445032333,
+   "sd": NaN,
+   "ci": [
+    0.9109046789890524,
+    0.9387961189628728
+   ],
+   "reference": null,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=5y",
+   "n": 2461,
+   "n_pos": 639,
+   "n_subjects": 569,
+   "auc": 0.904595888540169,
+   "sd": NaN,
+   "ci": [
+    0.8861737443437065,
+    0.9211050886363066
+   ],
+   "reference": 0.9008,
+   "min_lead_years": 0.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=3y",
+   "n": 2686,
+   "n_pos": 256,
+   "n_subjects": 629,
+   "auc": 0.8845052083333333,
+   "sd": NaN,
+   "ci": [
+    0.862515644290611,
+    0.905071435094619
+   ],
+   "reference": null,
+   "min_lead_years": 1.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=5y",
+   "n": 2297,
+   "n_pos": 475,
+   "n_subjects": 557,
+   "auc": 0.8655901554104802,
+   "sd": NaN,
+   "ci": [
+    0.8422190179149712,
+    0.8869865290707193
+   ],
+   "reference": 0.894,
+   "min_lead_years": 1.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=3y",
+   "n": 2686,
+   "n_pos": 256,
+   "n_subjects": 629,
+   "auc": 0.8934927983539095,
+   "sd": NaN,
+   "ci": [
+    0.8732247439464798,
+    0.912949588850339
+   ],
+   "reference": null,
+   "min_lead_years": 1.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=5y",
+   "n": 2297,
+   "n_pos": 475,
+   "n_subjects": 557,
+   "auc": 0.8771217285805073,
+   "sd": NaN,
+   "ci": [
+    0.8548416143625239,
+    0.897365791924806
+   ],
+   "reference": 0.9008,
+   "min_lead_years": 1.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=3y",
+   "n": 2546,
+   "n_pos": 116,
+   "n_subjects": 604,
+   "auc": 0.8617780615864906,
+   "sd": NaN,
+   "ci": [
+    0.8292125263352346,
+    0.8920667562020455
+   ],
+   "reference": null,
+   "min_lead_years": 2.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B3",
+   "target": "AD<=5y",
+   "n": 2157,
+   "n_pos": 335,
+   "n_subjects": 532,
+   "auc": 0.83963497550666,
+   "sd": NaN,
+   "ci": [
+    0.8139268975692927,
+    0.8653693652386447
+   ],
+   "reference": 0.894,
+   "min_lead_years": 2.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=3y",
+   "n": 2546,
+   "n_pos": 116,
+   "n_subjects": 604,
+   "auc": 0.8667127855825174,
+   "sd": NaN,
+   "ci": [
+    0.8330498297450424,
+    0.8962417085425279
+   ],
+   "reference": null,
+   "min_lead_years": 2.0,
+   "n_dropped_competing_death": 460,
+   "n_dropped_censored": 432
+  },
+  {
+   "baseline": "B4",
+   "target": "AD<=5y",
+   "n": 2157,
+   "n_pos": 335,
+   "n_subjects": 532,
+   "auc": 0.8512050067991547,
+   "sd": NaN,
+   "ci": [
+    0.82469636375081,
+    0.8759762971420231
+   ],
+   "reference": 0.9008,
+   "min_lead_years": 2.0,
+   "n_dropped_competing_death": 697,
+   "n_dropped_censored": 584
+  }
+ ]
+}
