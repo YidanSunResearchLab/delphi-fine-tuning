@@ -1,0 +1,602 @@
+Overriding config with config/train_delphi_rosmap.py:
+
+import time
+
+# ROSMAP adaptation of config/train_delphi.py (Delphi-2M, UKB).
+# Everything not listed here is inherited verbatim from train.py's defaults.
+
+out_dir = 'Delphi-ROSMAP'
+eval_interval = 250   # keep frequent because we'll overfit
+eval_iters = 50       # 25 in the UKB config; doubled because the val split is only 443 people
+log_interval = 25     # don't print too too often
+seed = 42
+
+# we expect to overfit on this small dataset, so only save when val improves
+always_save_checkpoint = False
+
+wandb_log = False
+wandb_project = 'delphi-rosmap'
+wandb_run_name = 'rosmap' + str(time.time())
+
+dataset = 'rosmap'
+batch_size = 128
+block_size = 96       # same as Delphi-2M; longest ROSMAP trajectory is 65 real tokens + <=20 no-event
+data_fraction = 1.0
+
+# 3,985 train participants / 142,528 records, vs ~400k participants in UKB.
+# Halve depth/width relative to Delphi-2M (12/12/120) to keep the model in scale with the corpus.
+n_layer = 6
+n_head = 6
+n_embd = 96
+dropout = 0.1         # 0.0 in the UKB config; the ROSMAP corpus is ~3 orders of magnitude smaller
+weight_decay = 2e-1
+vocab_size = 129      # from data/rosmap/labels.csv
+
+learning_rate = 6e-4
+max_iters = 12000
+lr_decay_iters = 12000  # make equal to max_iters usually
+min_lr = 6e-5           # learning_rate / 10 usually
+beta2 = 0.99            # make a bit bigger because number of tokens per iter is small
+
+warmup_iters = 500
+# padding, sex and the background/lifestyle block (post-shift ids, cf. data/rosmap/labels.csv)
+ignore_tokens = [0] + list(range(2, 34))
+t_min = 0.1
+token_dropout = 0.0
+no_event_token_rate = 5
+
+# ROSMAP's background block spans pre-shift ids 3..32 (UKB default is 3..11)
+lifestyle_token_min = 3
+lifestyle_token_max = 32
+
+Overriding: device = mps
+found vocab_size = 129
+Initializing a new model from scratch
+number of parameters: 0.69M
+using fused AdamW: False
+iter 0: loss 8599.9756, time 867.49ms
+iter 25: loss 8995.1104, time 181.12ms
+iter 50: loss 8320.2354, time 289.15ms
+iter 75: loss 8361.6465, time 234.59ms
+iter 100: loss 8447.9111, time 280.22ms
+iter 125: loss 7382.5620, time 278.09ms
+iter 150: loss 7080.2065, time 272.06ms
+iter 175: loss 6054.0498, time 265.82ms
+iter 200: loss 4679.6357, time 269.98ms
+iter 225: loss 3101.8179, time 252.05ms
+step 250: train loss 896.7904, val loss 885.0477
+saving checkpoint to Delphi-ROSMAP
+iter 250: loss 1763.8832, time 13324.00ms
+iter 275: loss 875.3252, time 426.27ms
+iter 300: loss 395.3146, time 283.85ms
+iter 325: loss 153.3873, time 321.11ms
+iter 350: loss 61.9337, time 263.63ms
+iter 375: loss 24.9931, time 252.71ms
+iter 400: loss 15.0026, time 306.98ms
+iter 425: loss 11.8104, time 292.11ms
+iter 450: loss 11.0248, time 254.02ms
+iter 475: loss 10.8257, time 263.37ms
+step 500: train loss 11.7042, val loss 11.6930
+saving checkpoint to Delphi-ROSMAP
+iter 500: loss 10.7039, time 11017.83ms
+iter 525: loss 10.5893, time 258.75ms
+iter 550: loss 10.3899, time 257.68ms
+iter 575: loss 10.4582, time 244.58ms
+iter 600: loss 10.3561, time 261.50ms
+iter 625: loss 10.2870, time 238.51ms
+iter 650: loss 10.1345, time 236.90ms
+iter 675: loss 10.1448, time 312.61ms
+iter 700: loss 10.0936, time 405.49ms
+iter 725: loss 10.0150, time 474.88ms
+step 750: train loss 11.0226, val loss 10.9768
+saving checkpoint to Delphi-ROSMAP
+iter 750: loss 10.0682, time 11753.77ms
+iter 775: loss 9.9515, time 279.28ms
+iter 800: loss 9.9270, time 325.88ms
+iter 825: loss 9.9253, time 261.33ms
+iter 850: loss 9.7501, time 280.61ms
+iter 875: loss 9.8122, time 254.76ms
+iter 900: loss 9.7007, time 313.59ms
+iter 925: loss 9.6591, time 263.75ms
+iter 950: loss 9.6907, time 256.62ms
+iter 975: loss 9.5791, time 254.63ms
+step 1000: train loss 10.3989, val loss 10.3759
+saving checkpoint to Delphi-ROSMAP
+iter 1000: loss 9.5624, time 10856.84ms
+iter 1025: loss 9.4924, time 236.97ms
+iter 1050: loss 9.4684, time 401.04ms
+iter 1075: loss 9.5772, time 411.74ms
+iter 1100: loss 9.5386, time 252.32ms
+iter 1125: loss 9.4152, time 520.31ms
+iter 1150: loss 9.4198, time 273.45ms
+iter 1175: loss 9.4541, time 269.31ms
+iter 1200: loss 9.3905, time 251.35ms
+iter 1225: loss 9.5466, time 274.85ms
+step 1250: train loss 10.1831, val loss 10.1809
+saving checkpoint to Delphi-ROSMAP
+iter 1250: loss 9.4300, time 12123.50ms
+iter 1275: loss 9.4443, time 256.29ms
+iter 1300: loss 9.4326, time 272.62ms
+iter 1325: loss 9.3891, time 276.21ms
+iter 1350: loss 9.3904, time 265.30ms
+iter 1375: loss 9.3953, time 271.05ms
+iter 1400: loss 9.4164, time 301.43ms
+iter 1425: loss 9.4100, time 271.44ms
+iter 1450: loss 9.4619, time 254.70ms
+iter 1475: loss 9.3521, time 287.04ms
+step 1500: train loss 10.0881, val loss 10.0766
+saving checkpoint to Delphi-ROSMAP
+iter 1500: loss 9.3913, time 11872.19ms
+iter 1525: loss 9.3945, time 262.57ms
+iter 1550: loss 9.3574, time 256.35ms
+iter 1575: loss 9.3112, time 278.90ms
+iter 1600: loss 9.3721, time 253.84ms
+iter 1625: loss 9.3898, time 260.84ms
+iter 1650: loss 9.2949, time 997.39ms
+iter 1675: loss 9.3954, time 298.43ms
+iter 1700: loss 9.3686, time 289.91ms
+iter 1725: loss 9.3423, time 273.29ms
+step 1750: train loss 10.0565, val loss 10.0229
+saving checkpoint to Delphi-ROSMAP
+iter 1750: loss 9.3492, time 12574.09ms
+iter 1775: loss 9.3672, time 296.68ms
+iter 1800: loss 9.3329, time 553.79ms
+iter 1825: loss 9.3176, time 280.93ms
+iter 1850: loss 9.2625, time 276.01ms
+iter 1875: loss 9.3400, time 269.88ms
+iter 1900: loss 9.2806, time 308.06ms
+iter 1925: loss 9.3703, time 281.47ms
+iter 1950: loss 9.2733, time 271.33ms
+iter 1975: loss 9.2804, time 260.51ms
+step 2000: train loss 10.0048, val loss 9.9988
+saving checkpoint to Delphi-ROSMAP
+iter 2000: loss 9.1939, time 11933.59ms
+iter 2025: loss 9.3010, time 282.05ms
+iter 2050: loss 9.2998, time 323.80ms
+iter 2075: loss 9.3559, time 291.69ms
+iter 2100: loss 9.2570, time 274.57ms
+iter 2125: loss 9.3010, time 243.50ms
+iter 2150: loss 9.3077, time 269.23ms
+iter 2175: loss 9.2344, time 313.56ms
+iter 2200: loss 9.2271, time 358.66ms
+iter 2225: loss 9.2297, time 272.56ms
+step 2250: train loss 9.9705, val loss 9.9600
+saving checkpoint to Delphi-ROSMAP
+iter 2250: loss 9.2265, time 11774.90ms
+iter 2275: loss 9.1999, time 257.46ms
+iter 2300: loss 9.2371, time 291.27ms
+iter 2325: loss 9.2307, time 276.50ms
+iter 2350: loss 9.2756, time 281.28ms
+iter 2375: loss 9.2256, time 280.54ms
+iter 2400: loss 9.3395, time 276.03ms
+iter 2425: loss 9.2638, time 248.74ms
+iter 2450: loss 9.2582, time 270.88ms
+iter 2475: loss 9.2319, time 264.97ms
+step 2500: train loss 9.9235, val loss 9.9440
+saving checkpoint to Delphi-ROSMAP
+iter 2500: loss 9.2717, time 10744.58ms
+iter 2525: loss 9.2410, time 247.65ms
+iter 2550: loss 9.2639, time 263.72ms
+iter 2575: loss 9.2264, time 245.07ms
+iter 2600: loss 9.1631, time 248.42ms
+iter 2625: loss 9.1820, time 229.51ms
+iter 2650: loss 9.2635, time 293.83ms
+iter 2675: loss 9.2687, time 243.08ms
+iter 2700: loss 9.2052, time 245.98ms
+iter 2725: loss 9.2064, time 252.60ms
+step 2750: train loss 9.8867, val loss 9.9034
+saving checkpoint to Delphi-ROSMAP
+iter 2750: loss 9.2288, time 10658.98ms
+iter 2775: loss 9.2607, time 390.81ms
+iter 2800: loss 9.2660, time 263.70ms
+iter 2825: loss 9.2651, time 292.25ms
+iter 2850: loss 9.2082, time 248.20ms
+iter 2875: loss 9.1812, time 252.96ms
+iter 2900: loss 9.2418, time 256.76ms
+iter 2925: loss 9.1782, time 263.06ms
+iter 2950: loss 9.2203, time 268.31ms
+iter 2975: loss 9.2082, time 251.57ms
+step 3000: train loss 9.8883, val loss 9.8977
+saving checkpoint to Delphi-ROSMAP
+iter 3000: loss 9.2170, time 13170.37ms
+iter 3025: loss 9.1670, time 342.76ms
+iter 3050: loss 9.2408, time 272.44ms
+iter 3075: loss 9.1674, time 253.42ms
+iter 3100: loss 9.2069, time 260.95ms
+iter 3125: loss 9.2002, time 274.69ms
+iter 3150: loss 9.2095, time 337.74ms
+iter 3175: loss 9.2416, time 272.47ms
+iter 3200: loss 9.1725, time 245.42ms
+iter 3225: loss 9.1685, time 259.26ms
+step 3250: train loss 9.8977, val loss 9.9084
+iter 3250: loss 9.1657, time 11892.13ms
+iter 3275: loss 9.1821, time 289.48ms
+iter 3300: loss 9.1833, time 304.22ms
+iter 3325: loss 9.1466, time 263.50ms
+iter 3350: loss 9.2125, time 263.56ms
+iter 3375: loss 9.1935, time 271.06ms
+iter 3400: loss 9.1324, time 297.40ms
+iter 3425: loss 9.1892, time 275.35ms
+iter 3450: loss 9.1405, time 283.54ms
+iter 3475: loss 9.2109, time 282.59ms
+step 3500: train loss 9.8705, val loss 9.8932
+saving checkpoint to Delphi-ROSMAP
+iter 3500: loss 9.1660, time 11668.38ms
+iter 3525: loss 9.1962, time 289.74ms
+iter 3550: loss 9.1812, time 264.34ms
+iter 3575: loss 9.1468, time 368.51ms
+iter 3600: loss 9.1537, time 288.20ms
+iter 3625: loss 9.1722, time 296.14ms
+iter 3650: loss 9.2190, time 329.55ms
+iter 3675: loss 9.1573, time 248.92ms
+iter 3700: loss 9.1475, time 250.95ms
+iter 3725: loss 9.1425, time 267.44ms
+step 3750: train loss 9.8203, val loss 9.8508
+saving checkpoint to Delphi-ROSMAP
+iter 3750: loss 9.1705, time 10758.66ms
+iter 3775: loss 9.1416, time 278.61ms
+iter 3800: loss 9.1357, time 261.82ms
+iter 3825: loss 9.1883, time 251.20ms
+iter 3850: loss 9.1056, time 268.61ms
+iter 3875: loss 9.2013, time 289.31ms
+iter 3900: loss 9.1753, time 251.26ms
+iter 3925: loss 9.2145, time 259.33ms
+iter 3950: loss 9.0959, time 269.61ms
+iter 3975: loss 9.0798, time 261.69ms
+step 4000: train loss 9.8271, val loss 9.8572
+iter 4000: loss 9.1729, time 10795.98ms
+iter 4025: loss 9.1178, time 269.22ms
+iter 4050: loss 9.1559, time 247.72ms
+iter 4075: loss 9.1107, time 263.38ms
+iter 4100: loss 9.1267, time 265.24ms
+iter 4125: loss 9.1417, time 235.43ms
+iter 4150: loss 9.1023, time 277.79ms
+iter 4175: loss 9.1469, time 240.21ms
+iter 4200: loss 9.1336, time 254.48ms
+iter 4225: loss 9.1637, time 249.19ms
+step 4250: train loss 9.8053, val loss 9.8653
+iter 4250: loss 9.1015, time 10683.39ms
+iter 4275: loss 9.1976, time 253.51ms
+iter 4300: loss 9.2010, time 249.81ms
+iter 4325: loss 9.1659, time 258.02ms
+iter 4350: loss 9.1267, time 233.37ms
+iter 4375: loss 9.1266, time 241.46ms
+iter 4400: loss 9.1004, time 311.82ms
+iter 4425: loss 9.1093, time 221.52ms
+iter 4450: loss 9.1672, time 277.16ms
+iter 4475: loss 9.0808, time 1290.66ms
+step 4500: train loss 9.7746, val loss 9.8301
+saving checkpoint to Delphi-ROSMAP
+iter 4500: loss 9.0498, time 12255.44ms
+iter 4525: loss 9.0698, time 258.94ms
+iter 4550: loss 9.0978, time 245.51ms
+iter 4575: loss 9.1081, time 277.08ms
+iter 4600: loss 9.1687, time 273.56ms
+iter 4625: loss 9.0726, time 261.69ms
+iter 4650: loss 9.0993, time 292.17ms
+iter 4675: loss 9.1498, time 247.82ms
+iter 4700: loss 9.1171, time 270.77ms
+iter 4725: loss 9.1171, time 255.64ms
+step 4750: train loss 9.7737, val loss 9.8443
+iter 4750: loss 9.0914, time 12172.75ms
+iter 4775: loss 9.0681, time 496.69ms
+iter 4800: loss 9.1316, time 284.85ms
+iter 4825: loss 9.1469, time 283.68ms
+iter 4850: loss 9.1842, time 296.78ms
+iter 4875: loss 9.1496, time 250.61ms
+iter 4900: loss 9.1062, time 270.21ms
+iter 4925: loss 9.1189, time 254.24ms
+iter 4950: loss 9.1271, time 254.05ms
+iter 4975: loss 9.0905, time 247.04ms
+step 5000: train loss 9.7635, val loss 9.8166
+saving checkpoint to Delphi-ROSMAP
+iter 5000: loss 9.1322, time 10766.26ms
+iter 5025: loss 9.0935, time 472.69ms
+iter 5050: loss 9.1388, time 287.60ms
+iter 5075: loss 9.1869, time 228.78ms
+iter 5100: loss 9.1023, time 337.63ms
+iter 5125: loss 9.0997, time 333.74ms
+iter 5150: loss 8.9924, time 262.40ms
+iter 5175: loss 9.1607, time 262.51ms
+iter 5200: loss 9.1877, time 239.17ms
+iter 5225: loss 9.1334, time 347.56ms
+step 5250: train loss 9.7684, val loss 9.8512
+iter 5250: loss 9.0654, time 290769.37ms
+iter 5275: loss 9.1353, time 257.13ms
+iter 5300: loss 9.0842, time 413.21ms
+iter 5325: loss 9.1037, time 240.20ms
+iter 5350: loss 9.1269, time 235.51ms
+iter 5375: loss 9.1126, time 247.17ms
+iter 5400: loss 9.1633, time 252.08ms
+iter 5425: loss 9.1499, time 403.63ms
+iter 5450: loss 9.0706, time 455.41ms
+iter 5475: loss 9.0781, time 385.82ms
+step 5500: train loss 9.7358, val loss 9.8221
+iter 5500: loss 9.0337, time 10345.16ms
+iter 5525: loss 9.1236, time 255.86ms
+iter 5550: loss 9.1088, time 377.82ms
+iter 5575: loss 9.0963, time 419.03ms
+iter 5600: loss 8.9968, time 449.59ms
+iter 5625: loss 9.1253, time 390.05ms
+iter 5650: loss 9.1607, time 271.83ms
+iter 5675: loss 9.1357, time 287.76ms
+iter 5700: loss 9.0536, time 239.99ms
+iter 5725: loss 9.0515, time 385.26ms
+step 5750: train loss 9.7660, val loss 9.8575
+iter 5750: loss 9.1053, time 1040340.14ms
+iter 5775: loss 9.0141, time 160.96ms
+iter 5800: loss 9.0920, time 150.29ms
+iter 5825: loss 9.0467, time 163.98ms
+iter 5850: loss 9.0873, time 165.91ms
+iter 5875: loss 9.0555, time 166.36ms
+iter 5900: loss 9.1232, time 169.32ms
+iter 5925: loss 9.0950, time 294.53ms
+iter 5950: loss 9.1322, time 161.92ms
+iter 5975: loss 9.1033, time 176.78ms
+step 6000: train loss 9.7215, val loss 9.8262
+iter 6000: loss 9.0810, time 7152.58ms
+iter 6025: loss 9.1142, time 169.97ms
+iter 6050: loss 9.0755, time 150.77ms
+iter 6075: loss 9.0363, time 171.53ms
+iter 6100: loss 9.0480, time 171.68ms
+iter 6125: loss 9.0552, time 167.21ms
+iter 6150: loss 9.1066, time 200.41ms
+iter 6175: loss 9.1299, time 156.79ms
+iter 6200: loss 9.0924, time 158.11ms
+iter 6225: loss 9.0681, time 165.30ms
+step 6250: train loss 9.7253, val loss 9.8385
+iter 6250: loss 9.0675, time 7200.79ms
+iter 6275: loss 9.0754, time 143.97ms
+iter 6300: loss 9.0767, time 164.17ms
+iter 6325: loss 9.1023, time 146.72ms
+iter 6350: loss 9.0532, time 160.68ms
+iter 6375: loss 9.0836, time 174.73ms
+iter 6400: loss 9.0496, time 183.12ms
+iter 6425: loss 9.0419, time 172.25ms
+iter 6450: loss 9.1170, time 151.94ms
+iter 6475: loss 9.0876, time 162.46ms
+step 6500: train loss 9.6963, val loss 9.8246
+iter 6500: loss 9.0979, time 6464.33ms
+iter 6525: loss 9.0620, time 141.06ms
+iter 6550: loss 9.0433, time 145.08ms
+iter 6575: loss 9.0555, time 148.56ms
+iter 6600: loss 9.0639, time 137.47ms
+iter 6625: loss 9.0467, time 139.20ms
+iter 6650: loss 9.1281, time 173.69ms
+iter 6675: loss 9.0154, time 153.56ms
+iter 6700: loss 8.9937, time 150.54ms
+iter 6725: loss 9.0964, time 149.62ms
+step 6750: train loss 9.7110, val loss 9.8523
+iter 6750: loss 9.1043, time 6427.92ms
+iter 6775: loss 9.1236, time 148.93ms
+iter 6800: loss 9.0478, time 151.43ms
+iter 6825: loss 9.0684, time 154.28ms
+iter 6850: loss 9.0359, time 160.36ms
+iter 6875: loss 9.0949, time 143.56ms
+iter 6900: loss 9.0414, time 165.79ms
+iter 6925: loss 9.0378, time 188.99ms
+iter 6950: loss 9.0225, time 151.30ms
+iter 6975: loss 9.0154, time 158.92ms
+step 7000: train loss 9.6894, val loss 9.8324
+iter 7000: loss 9.0272, time 6783.34ms
+iter 7025: loss 9.1234, time 146.04ms
+iter 7050: loss 8.9689, time 144.96ms
+iter 7075: loss 9.1369, time 155.31ms
+iter 7100: loss 9.1005, time 177.60ms
+iter 7125: loss 9.0869, time 150.91ms
+iter 7150: loss 9.0528, time 149.73ms
+iter 7175: loss 9.0532, time 148.90ms
+iter 7200: loss 9.0942, time 156.24ms
+iter 7225: loss 9.0435, time 178.80ms
+step 7250: train loss 9.6651, val loss 9.8285
+iter 7250: loss 9.0886, time 6603.42ms
+iter 7275: loss 9.0730, time 147.32ms
+iter 7300: loss 9.0724, time 150.70ms
+iter 7325: loss 9.0409, time 157.01ms
+iter 7350: loss 9.1000, time 149.97ms
+iter 7375: loss 9.0667, time 143.17ms
+iter 7400: loss 9.0705, time 158.97ms
+iter 7425: loss 9.0926, time 148.12ms
+iter 7450: loss 9.0446, time 157.81ms
+iter 7475: loss 9.0947, time 156.13ms
+step 7500: train loss 9.6802, val loss 9.8396
+iter 7500: loss 9.1068, time 6812.26ms
+iter 7525: loss 9.1083, time 152.58ms
+iter 7550: loss 9.1318, time 156.54ms
+iter 7575: loss 9.0342, time 163.45ms
+iter 7600: loss 8.9735, time 160.06ms
+iter 7625: loss 9.0300, time 165.25ms
+iter 7650: loss 9.0449, time 154.25ms
+iter 7675: loss 9.0368, time 168.80ms
+iter 7700: loss 9.0214, time 157.45ms
+iter 7725: loss 9.0291, time 164.37ms
+step 7750: train loss 9.6674, val loss 9.8571
+iter 7750: loss 8.9880, time 6586.50ms
+iter 7775: loss 9.0212, time 158.53ms
+iter 7800: loss 9.0840, time 161.30ms
+iter 7825: loss 9.1226, time 148.76ms
+iter 7850: loss 9.0350, time 153.24ms
+iter 7875: loss 9.0332, time 176.23ms
+iter 7900: loss 9.0555, time 149.94ms
+iter 7925: loss 9.0081, time 162.41ms
+iter 7950: loss 9.0696, time 194.73ms
+iter 7975: loss 8.9669, time 135.12ms
+step 8000: train loss 9.6625, val loss 9.8480
+iter 8000: loss 9.0508, time 6368.15ms
+iter 8025: loss 9.0563, time 139.67ms
+iter 8050: loss 9.0659, time 145.73ms
+iter 8075: loss 9.0420, time 151.27ms
+iter 8100: loss 9.0814, time 145.68ms
+iter 8125: loss 9.0713, time 148.10ms
+iter 8150: loss 9.0153, time 145.29ms
+iter 8175: loss 9.0441, time 155.14ms
+iter 8200: loss 8.9793, time 154.98ms
+iter 8225: loss 9.0323, time 165.65ms
+step 8250: train loss 9.6444, val loss 9.8578
+iter 8250: loss 8.9568, time 6808.83ms
+iter 8275: loss 9.0297, time 147.58ms
+iter 8300: loss 9.0234, time 177.26ms
+iter 8325: loss 8.9908, time 146.47ms
+iter 8350: loss 8.9638, time 166.78ms
+iter 8375: loss 9.0048, time 153.53ms
+iter 8400: loss 9.0252, time 154.64ms
+iter 8425: loss 9.0545, time 152.41ms
+iter 8450: loss 9.0346, time 165.11ms
+iter 8475: loss 9.0368, time 141.05ms
+step 8500: train loss 9.6443, val loss 9.8448
+iter 8500: loss 8.9883, time 7263.60ms
+iter 8525: loss 9.0363, time 166.17ms
+iter 8550: loss 9.0212, time 166.83ms
+iter 8575: loss 8.9764, time 146.71ms
+iter 8600: loss 9.0012, time 141.33ms
+iter 8625: loss 9.0210, time 157.39ms
+iter 8650: loss 8.9968, time 153.30ms
+iter 8675: loss 9.0471, time 155.98ms
+iter 8700: loss 9.0787, time 155.91ms
+iter 8725: loss 9.0510, time 157.00ms
+step 8750: train loss 9.6265, val loss 9.8628
+iter 8750: loss 8.9717, time 6505.05ms
+iter 8775: loss 9.0204, time 144.55ms
+iter 8800: loss 9.0610, time 152.34ms
+iter 8825: loss 9.0300, time 153.73ms
+iter 8850: loss 9.0711, time 180.67ms
+iter 8875: loss 9.0692, time 141.57ms
+iter 8900: loss 9.1206, time 151.70ms
+iter 8925: loss 8.9691, time 152.69ms
+iter 8950: loss 8.9896, time 153.12ms
+iter 8975: loss 9.0270, time 160.01ms
+step 9000: train loss 9.6212, val loss 9.8512
+iter 9000: loss 9.0244, time 6504.86ms
+iter 9025: loss 9.0585, time 149.24ms
+iter 9050: loss 8.9951, time 151.19ms
+iter 9075: loss 8.9381, time 140.77ms
+iter 9100: loss 9.0126, time 151.13ms
+iter 9125: loss 8.9636, time 154.44ms
+iter 9150: loss 9.0121, time 166.42ms
+iter 9175: loss 9.0379, time 180.08ms
+iter 9200: loss 8.9615, time 143.21ms
+iter 9225: loss 9.0670, time 174.32ms
+step 9250: train loss 9.6210, val loss 9.8640
+iter 9250: loss 8.9815, time 6522.14ms
+iter 9275: loss 9.0516, time 149.91ms
+iter 9300: loss 9.0375, time 156.85ms
+iter 9325: loss 9.0118, time 144.29ms
+iter 9350: loss 8.9922, time 163.31ms
+iter 9375: loss 8.9440, time 146.58ms
+iter 9400: loss 9.0082, time 177.88ms
+iter 9425: loss 9.0120, time 144.42ms
+iter 9450: loss 8.9779, time 152.19ms
+iter 9475: loss 9.0248, time 147.57ms
+step 9500: train loss 9.6081, val loss 9.8621
+iter 9500: loss 9.0769, time 6577.30ms
+iter 9525: loss 9.0463, time 156.61ms
+iter 9550: loss 9.0063, time 141.57ms
+iter 9575: loss 9.0807, time 159.19ms
+iter 9600: loss 9.0450, time 149.33ms
+iter 9625: loss 8.9845, time 158.89ms
+iter 9650: loss 8.9948, time 152.27ms
+iter 9675: loss 9.0410, time 162.15ms
+iter 9700: loss 9.0363, time 151.24ms
+iter 9725: loss 8.9740, time 147.09ms
+step 9750: train loss 9.6005, val loss 9.8490
+iter 9750: loss 8.9990, time 6548.50ms
+iter 9775: loss 9.0186, time 166.62ms
+iter 9800: loss 9.0041, time 149.88ms
+iter 9825: loss 9.0430, time 151.09ms
+iter 9850: loss 8.8908, time 159.31ms
+iter 9875: loss 8.9627, time 164.75ms
+iter 9900: loss 8.9741, time 148.36ms
+iter 9925: loss 9.0340, time 144.70ms
+iter 9950: loss 8.9828, time 164.75ms
+iter 9975: loss 9.0407, time 142.00ms
+step 10000: train loss 9.5913, val loss 9.8580
+saving checkpoint to Delphi-ROSMAP
+iter 10000: loss 9.0140, time 6670.44ms
+iter 10025: loss 9.0260, time 159.36ms
+iter 10050: loss 9.0058, time 147.66ms
+iter 10075: loss 8.9812, time 142.79ms
+iter 10100: loss 9.0196, time 141.11ms
+iter 10125: loss 8.9626, time 176.71ms
+iter 10150: loss 8.9793, time 152.11ms
+iter 10175: loss 8.9405, time 146.21ms
+iter 10200: loss 9.0323, time 142.05ms
+iter 10225: loss 9.0381, time 155.22ms
+step 10250: train loss 9.5936, val loss 9.8580
+iter 10250: loss 8.9845, time 6583.21ms
+iter 10275: loss 9.0298, time 147.35ms
+iter 10300: loss 9.0049, time 148.99ms
+iter 10325: loss 8.9931, time 145.27ms
+iter 10350: loss 9.0351, time 146.53ms
+iter 10375: loss 9.0013, time 149.25ms
+iter 10400: loss 9.0838, time 148.19ms
+iter 10425: loss 8.9422, time 148.28ms
+iter 10450: loss 8.9859, time 157.84ms
+iter 10475: loss 8.9942, time 166.98ms
+step 10500: train loss 9.5770, val loss 9.8547
+iter 10500: loss 8.9642, time 7067.37ms
+iter 10525: loss 8.9652, time 169.74ms
+iter 10550: loss 9.0438, time 154.62ms
+iter 10575: loss 9.0056, time 137.64ms
+iter 10600: loss 9.0054, time 162.76ms
+iter 10625: loss 8.9775, time 159.61ms
+iter 10650: loss 8.9823, time 167.12ms
+iter 10675: loss 9.0266, time 149.37ms
+iter 10700: loss 9.0096, time 143.79ms
+iter 10725: loss 9.0110, time 146.62ms
+step 10750: train loss 9.5653, val loss 9.8569
+iter 10750: loss 9.0139, time 6617.36ms
+iter 10775: loss 9.0674, time 159.39ms
+iter 10800: loss 9.0101, time 194.58ms
+iter 10825: loss 8.9841, time 158.75ms
+iter 10850: loss 9.0271, time 150.78ms
+iter 10875: loss 9.0712, time 150.36ms
+iter 10900: loss 8.9716, time 157.03ms
+iter 10925: loss 8.9290, time 175.11ms
+iter 10950: loss 9.0259, time 167.02ms
+iter 10975: loss 9.0153, time 155.09ms
+step 11000: train loss 9.5832, val loss 9.8663
+iter 11000: loss 8.9194, time 6637.30ms
+iter 11025: loss 8.9341, time 145.37ms
+iter 11050: loss 8.9736, time 158.05ms
+iter 11075: loss 8.9701, time 181.56ms
+iter 11100: loss 8.9793, time 161.46ms
+iter 11125: loss 9.0506, time 145.68ms
+iter 11150: loss 9.0945, time 150.06ms
+iter 11175: loss 8.9648, time 163.92ms
+iter 11200: loss 9.0087, time 151.47ms
+iter 11225: loss 8.9398, time 152.32ms
+step 11250: train loss 9.5586, val loss 9.8543
+iter 11250: loss 8.9597, time 6622.63ms
+iter 11275: loss 8.9723, time 160.21ms
+iter 11300: loss 8.9979, time 155.16ms
+iter 11325: loss 9.0043, time 166.03ms
+iter 11350: loss 9.0345, time 159.87ms
+iter 11375: loss 8.9690, time 154.25ms
+iter 11400: loss 8.9456, time 163.77ms
+iter 11425: loss 8.9914, time 155.08ms
+iter 11450: loss 9.0410, time 161.36ms
+iter 11475: loss 9.0316, time 153.09ms
+step 11500: train loss 9.5681, val loss 9.8602
+iter 11500: loss 8.9849, time 6611.21ms
+iter 11525: loss 8.9229, time 149.03ms
+iter 11550: loss 9.0164, time 152.09ms
+iter 11575: loss 8.9685, time 148.06ms
+iter 11600: loss 9.0210, time 190.52ms
+iter 11625: loss 9.0079, time 156.05ms
+iter 11650: loss 9.0128, time 151.58ms
+iter 11675: loss 8.9718, time 141.55ms
+iter 11700: loss 8.9088, time 149.59ms
+iter 11725: loss 9.0268, time 183.10ms
+step 11750: train loss 9.5443, val loss 9.8708
+iter 11750: loss 8.9280, time 6797.52ms
+iter 11775: loss 9.0381, time 146.93ms
+iter 11800: loss 9.0298, time 149.52ms
+iter 11825: loss 8.9857, time 153.53ms
+iter 11850: loss 8.9678, time 158.40ms
+iter 11875: loss 9.0195, time 190.24ms
+iter 11900: loss 8.9391, time 160.96ms
+iter 11925: loss 9.0430, time 154.90ms
+iter 11950: loss 8.9477, time 151.10ms
+iter 11975: loss 9.0437, time 173.18ms
+step 12000: train loss 9.5658, val loss 9.8655
+iter 12000: loss 8.9303, time 6763.71ms

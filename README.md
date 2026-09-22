@@ -34,6 +34,33 @@ slurm/                 RIS submission scripts and the code-only deploy
 tests/test_pipeline.py 46 regression checks
 ```
 
+The four directories below are the ROSMAP arm: a separate line of work that fine-tunes the
+*upstream* Delphi-2M implementation on ROS/MAP rather than using `radc_delphi/` above. It has its
+own tokenizer, its own checkpoints and its own evaluation scripts, and shares nothing with the code
+above except the modelling idea. Kept here so the two arms can be compared from one place.
+
+```
+tokenization/
+    spec.py            the ROSMAP variable spec: which columns, which bins, what gets excluded
+    build.py           the two gk spreadsheets + ROSMAP_clinical.csv -> data_rosmap*/{train,val}.bin
+delphi/                vendored gerstung-lab/delphi @ fb72166 (2026-08-07), plus the ROSMAP arm:
+    train.py, utils.py               carry a local diff vs fb72166 (+17/-3): ROSMAP data loading
+    config/train_delphi_rosmap*.py   ROSMAP training configs (dedup and nodedup variants)
+    evaluate_auc_rosmap.py           per-token AUC on the ROSMAP val split
+    ris/                             RIS submission scripts
+    Delphi-ROSMAP*/auc/              scored AUC tables for the three runs
+figure2_eval/          Figure 2 for the ROSMAP arm, plus the diagnostic probes
+    radc_delphi/       a fork of the engine above, drifted; do not import across arms
+    probe_*.py         one probe per failure mode (calibration, shift, ties, perturbation, ...)
+    next_visit_auc.py  next-visit AUC, the headline number
+aladynoulli_rosmap/    Aladynoulli latent-signature baseline, k-fold CV against the Delphi states
+```
+
+Everything these scripts read lives under an ignored `data/` or `data_rosmap*/` directory and is
+*not* in this repository — see `tokenization/README.md` and `figure2_eval/README.md` for how to
+rebuild it from the RADC source files. `figure2_eval/data/` is two symlinks into
+`delphi/data/`; recreate them after cloning.
+
 Two token spaces, and confusing them is the classic bug in this family of code:
 
 | space | where | 0 | 1 | content |
