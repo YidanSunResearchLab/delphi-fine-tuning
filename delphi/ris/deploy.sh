@@ -29,6 +29,7 @@ rsync -az \
   --exclude '__pycache__/' --exclude '*.pyc' --exclude '.DS_Store' \
   -e "ssh -o BatchMode=yes" \
   train.py model.py utils.py configurator.py evaluate_auc.py evaluate_auc_rosmap.py \
+  make_aux_labels.py test_heads_shapes.py test_getbatch_equiv.py utils_upstream_ref.py \
   "$HOST:$BASE/delphi/"
 rsync -az --delete --exclude '__pycache__/' -e "ssh -o BatchMode=yes" \
   config/ "$HOST:$BASE/delphi/config/"
@@ -40,9 +41,21 @@ for ds in ${DATASETS[@]+"${DATASETS[@]}"}; do
   echo "=== 上传受限数据 data/$ds （显式请求）"
   [ -d "data/$ds" ] || { echo "FATAL: 本地没有 data/$ds" >&2; exit 1; }
   ssh -o BatchMode=yes "$HOST" "mkdir -p '$BASE/delphi/data/$ds' && chmod 700 '$BASE/delphi/data/$ds'"
+  # test.bin 只有三分数据集才有（tokenization/build.py --split 的 test 比例 > 0）。上传列表是
+  # **显式文件名**，漏了不会报错：rsync 照样成功，集群上那份数据集就少一个 split，等到
+  # SPLIT=test 才发现。反过来，本地没有而集群上有，多半是上一轮三分留下的残件，它和这次上传的
+  # train.bin **有交集**，被当 held-out 用就是把训练集当测试集报数 —— 所以这里明说，别静默。
+  EXTRA=()
+  if [ -f "data/$ds/test.bin" ]; then
+    EXTRA+=("data/$ds/test.bin")
+  else
+    echo "  注意: 本地 data/$ds 没有 test.bin（两分数据集）。若下面的列表显示集群上有一个，"
+    echo "        那是上一轮三分的残件，和这次的 train.bin 有交集，必须手工删掉再用。"
+  fi
   # macOS 自带的 rsync 不认 --chmod=F600，所以权限在传完之后用 ssh 收紧（目录本身已是 0700）
   rsync -az -e "ssh -o BatchMode=yes" \
     "data/$ds/train.bin" "data/$ds/val.bin" "data/$ds/labels.csv" "data/$ds/meta.json" \
+    ${EXTRA[@]+"${EXTRA[@]}"} \
     "$HOST:$BASE/delphi/data/$ds/"
   ssh -o BatchMode=yes "$HOST" "chmod 600 '$BASE/delphi/data/$ds'/*"
 done

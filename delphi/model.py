@@ -151,6 +151,65 @@ class DelphiConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mask_ties: bool = False
     ignore_tokens: list = field(default_factory=lambda: [0])
+    # 位置编码。上游把 wpe 注释掉了，模型对"时间"的唯一感知是 AgeEncoding —— **绝对**年龄的
+    # 正弦码，加到 token 嵌入上。后果：要算"某个序数家族最近一次的值"，query 得在 n_embd 维
+    # 空间里做一次跨位置的年龄大小比较，而**相对**时间 (age_q - age_k) 根本不可得。
+    # 那个量恰好是单访视 logistic 基线（figure2_eval/window_baselines.py 的 W）的全部特征，
+    # 也是实测里 transformer 唯一没能超过基线的地方（skill vs W 三档全为负）。
+    #
+    # pos_embedding=True 重新启用可学习的绝对位置嵌入。.bin 的 token 流是按年龄稳定排序的，
+    # 所以**位置下标就是新近度排名**，"最近一次" = "下标最大的那个"，attention 一步可达。
+    # 默认 False：保持交付版 ckpt 的可复现性。
+    pos_embedding: bool = False
+
+    # ---------------------------------------------------------------- 改动 A：多任务判别头
+    # 为什么要它：figure2_eval/README.md 第 9.3 节实测，**同一个 ckpt**，只把 rollout 换成
+    # "基线隐状态接 logistic"，panel a 中位 AUC 从 0.680 涨到 0.777，AD 5y 从 0.535 涨到
+    # 0.818。也就是说塌陷在**输出机制**（逐 token 自回归采样 + 事后的经验访视大小补丁），
+    # 不在表征。aux_head 把那个探针搬进模型里端到端训练：n_embd -> aux_n_targets 个独立
+    # 的 sigmoid，标签是 figure2 的删失感知三值标签（1 / 0 / -1），由同目录的
+    # make_aux_labels.py 生成，和 train.bin/val.bin **逐行对齐**。
+    #
+    # 默认 False，三个理由（都不是风格问题）：
+    #   1) 打开就多一个 Linear，参数量和 state_dict 的 key 集合都变，交付版 ckpt 不再能
+    #      字节级复现，engine.load 拿旧 ckpt 建新 config 也会多出没训过的权重；
+    #   2) 它依赖一份和 .bin 逐行对齐的 aux_labels_<split>.npy，文件缺失/行数不符必须是
+    #      明确报错，而不是悄悄退化成"没有监督的空头"；
+    #   3) 它改变 val loss 的含义，而 train.py 用 val loss 选 checkpoint
+    #      （always_save_checkpoint=False），开了之后选出来的就不是同一个 ckpt 了。
+    aux_head: bool = False
+    # 判别头的输出个数 = 终点数 × horizon 数（当前 3 × 5 = 15）。**不要手填**：train.py 从
+    # aux_labels_<split>.npy 的列数推出来再写进 model_args。手填错了不会报错，BCE 照样
+    # 收敛，只是每一列学的是别的终点 —— 典型的静默失败。
+    aux_n_targets: int = 0
+    # 总损失里判别头的权重（loss = loss_ce + loss_dt + aux_lambda * loss_aux）。
+    # 0.0 = 头建出来但完全不参与训练，用来做"加了参数但不监督"的对照。
+    # train.py 的 val loss 用**同一个**权重加权，否则选 ckpt 的目标和训练目标不是一回事。
+    aux_lambda: float = 0.0
+
+    # ---------------------------------------------------------------- 改动 B：访视级时间模型
+    # 为什么要它：figure2_eval/README.md 第 3.2 节。mask_ties 下 `dt` 被 gather 换成"到上一个
+    # **非同龄** token 的时间" = 访视间隔，所以时间头学到的是**访视速率**（实测
+    # exp(-logsumexp) 中位 338 天 ≈ 观测访视间隔 365 天）；但生成时逐 token 采样，一次等待
+    # 只发一个 token，真实访视却带 3.2–8.3 个。现在这个缺口靠 visit_sizes.npy 这个**事后
+    # 经验分布补丁**填（第 7 节实测 fullvisit 均值已 8.34，补丁承担了生成过程的绝大部分）。
+    #
+    # visit_heads=True 把它拆成两件学出来的事：
+    #   time_head  标量 log 速率 -> "下一次**访视**什么时候"（dt 的定义一个字不改，只换了
+    #              速率的来源，所以和现在的 loss_dt 是同一个指数对数似然）
+    #   size_head  "这一次访视发几个 token" 的分布（新的 loss_size）
+    #   lm_head    继续只管"发什么"（loss_ce 不变）
+    #
+    # 默认 False：打开之后 lm_head 的 logits **不再被训练成速率**，上游 generate() 和
+    # figure2_eval/radc_delphi/engine.simulate() 里那套 `-exp(-logits)*log(u)` 取 min 的
+    # 采样就失去了含义 —— 这是本改动最危险的静默失败，采样器必须同步改（见 generate()
+    # 里的 RuntimeError 和 forward() 里的一次性 warning）。
+    visit_heads: bool = False
+    # size_head 的类数：k ∈ {1 .. max_visit_size}，顶格那一类的含义是 ">= max_visit_size"。
+    # 24 够覆盖 ROSMAP 的非基线访视（2–9 个 token）。基线那一次（statics + 首访 = 21 个）
+    # 永远不会成为标签，因为它前面没有位置可问。如果换了一个访视更大的 build，这里不加大
+    # 是静默的：模型学不会补发那么多 token，生成出来的访视会系统性偏小。
+    max_visit_size: int = 24
 
 class Delphi(nn.Module):
 
@@ -162,7 +221,6 @@ class Delphi(nn.Module):
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
-            #wpe = nn.Embedding(config.block_size, config.n_embd),
             #wae = nn.Linear(1, config.n_embd, bias=True), ##nn.Embedding(config.block_size, config.n_embd),
             wae = AgeEncoding(config),
             #mlp = MLP(config),
@@ -171,7 +229,19 @@ class Delphi(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
+        if config.pos_embedding:
+            self.transformer["wpe"] = nn.Embedding(config.block_size, config.n_embd)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        # 两个改动的额外读出口。**只在 flag 打开时才建**，否则 state_dict 会多出 key，
+        # 交付版 ckpt 的参数量（vocab 129 / block 144 / 6 层 / 96 维 -> 0.693M）就变了。
+        if config.aux_head:
+            assert config.aux_n_targets > 0, (
+                "aux_head=True 但 aux_n_targets=0：判别头会是一个 0 列的 Linear，loss_aux 恒为 0 "
+                "而训练照跑不误。aux_n_targets 应由 train.py 从 aux_labels_<split>.npy 的列数推出。")
+            self.aux_head = nn.Linear(config.n_embd, config.aux_n_targets)
+        if config.visit_heads:
+            self.time_head = nn.Linear(config.n_embd, 1)
+            self.size_head = nn.Linear(config.n_embd, config.max_visit_size)
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
@@ -208,18 +278,30 @@ class Delphi(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, age, targets=None, targets_age=None, validation_loss_mode=False):
+    def forward(self, idx, age, targets=None, targets_age=None, validation_loss_mode=False,
+                aux_targets=None, visit_size_targets=None):
+        """新参数一律**追加在末尾**：engine.py / evaluate_auc*.py / train.py 都按位置传前四个。
+
+        aux_targets:        (b, t, aux_n_targets)，取值 {1, 0, -1}，-1 = 该位置该终点删失/未知，
+                            必须从损失里剔除；对齐到**输入**位置（utils.get_batch 负责）。
+        visit_size_targets: (b, t)，下一次访视的 token 数 k >= 1，-1 = 该位置不监督。
+        两个都是 None 时，这个函数和改动前逐字符等价。
+        """
         device = idx.device
         b, t = idx.size()
         #assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         # pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        #pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
         age_emb = self.transformer.wae(age.unsqueeze(-1)) # age embeddings of shape (b, t, n_embd)
         #age_emb = self.transformer.mlp(age_emb)
         x = self.transformer.token_drop(tok_emb)
         x = x + age_emb
+        if self.config.pos_embedding:
+            # 流按年龄稳定排序 -> 位置下标 = 新近度排名。给 attention 一个能直接比较"谁更近"
+            # 的坐标；加性绝对年龄码做不到这件事。见 DelphiConfig.pos_embedding。
+            pos = torch.arange(0, t, dtype=torch.long, device=device)
+            x = x + self.transformer.wpe(pos)[None, :, :]
         x = self.transformer.drop(x)
         
         attn_mask = (idx>0).view(idx.size(0), 1, 1, idx.size(1)) * (idx>0).view(idx.size(0),1,idx.size(1),1)  # Do not attend to padded positions
@@ -258,7 +340,15 @@ class Delphi(nn.Module):
             loss_ce = F.cross_entropy(logits.reshape(-1, logits.size(-1))[pass_tokens], targets[pass_tokens], ignore_index=-1)
             
             # time to next event loss, padding masked
-            lse = torch.logsumexp(logits,-1) ## More forgiving than using torch.max() for the most likely next event
+            if self.config.visit_heads:
+                # 访视级时间模型：速率改由**专用标量头**给，而不是从 logsumexp(lm_head) 来。
+                # dt 的定义（下面几行）一个字不改，所以这是**同一个**指数对数似然，只是
+                # 换了速率的来源 —— 目的是把"何时来访"和"来了发什么"解耦：解耦之前
+                # logsumexp(logits) 同时充当这两件事的归一化常数，生成时一次等待只能发
+                # 一个 token，缺的那 3–8 倍只能靠 visit_sizes.npy 事后补。
+                lse = self.time_head(x).squeeze(-1)
+            else:
+                lse = torch.logsumexp(logits,-1) ## More forgiving than using torch.max() for the most likely next event
             lse = - torch.log(torch.exp(-lse) + self.config.t_min)
             dt = torch.clamp(targets_age - age, min=1.0)
             if self.config.mask_ties:
@@ -272,12 +362,72 @@ class Delphi(nn.Module):
             # Both losses combined
             # loss = loss_ce + loss_dt
             loss = {'loss_ce': loss_ce, 'loss_dt': loss_dt}
-            
+
+            # ------------------------------------------------ 改动 A：多任务判别头的 BCE
+            # 只在 flag 打开**且**这一批带了标签时才加 key。key 集合随 flag 变，是为了让
+            # train.py 那边"aux 关着的时候数值逐字符不变"这件事是结构性的，而不是靠
+            # 权重恰好等于 0。
+            if self.config.aux_head and aux_targets is not None:
+                K = self.config.aux_n_targets
+                # 形状必须硬查。`reshape(-1, K)` 在列数不等时**通常照样成功**（b*t*N 能被 K
+                # 整除就行），然后每一列学的是别的终点 —— BCE 收敛、AUC 像个数、没有任何报错。
+                # 这是 resume 一个旧 ckpt（它的 aux_n_targets 冻在 model_args 里）配上一份
+                # 重新生成、列数变了的 aux_labels_*.npy 时的真实路径。
+                assert aux_targets.shape[-1] == K, (
+                    f"aux_targets 有 {aux_targets.shape[-1]} 列，aux_head 只有 {K} 个输出。"
+                    "两者必须相等 —— 重新生成过 aux_labels_*.npy 就不能 resume 旧 ckpt。")
+                assert aux_targets.shape[:2] == idx.shape, (
+                    f"aux_targets 前两维 {tuple(aux_targets.shape[:2])} != idx {tuple(idx.shape)}："
+                    "标签没有跟着 get_batch 的裁剪/位移走。")
+                aux_logits = self.aux_head(x).reshape(-1, K)
+                at = aux_targets.reshape(-1, K)
+                # 两层掩码，缺任何一层都会静默地把损失算歪：
+                #   at >= 0        ——  -1 是"删失/未知"，把它当阴性正是 labels_at_h 要避免的
+                #                      系统性低估（figure2_eval/README.md 9.5 的第 (1) 条）；
+                #   pass_tokens    ——  padding 和 ignore_tokens（statics 块）的位置，
+                #                      loss_ce 也是这样排掉的，两边口径必须一致。
+                valid = (at >= 0) & pass_tokens.unsqueeze(-1)
+                bce = F.binary_cross_entropy_with_logits(
+                    aux_logits, at.clamp(min=0).to(aux_logits.dtype), reduction='none')
+                # 手写 masked mean 而不是先筛后算：筛出来的元素个数会随 batch 变，
+                # 在 GPU 上是一次同步；乘 0 的那些位置梯度恰好是 0（目标已 clamp 过，
+                # 不会出 NaN），分母 clamp(1) 保证整批全删失时得到 0 而不是 0/0。
+                loss_aux = (bce * valid).sum() / valid.sum().clamp(min=1)
+                loss['loss_aux'] = loss_aux
+
+            # ------------------------------------------------ 改动 B：下一次访视的 token 数
+            if self.config.visit_heads and visit_size_targets is not None:
+                assert visit_size_targets.shape == idx.shape, (
+                    f"visit_size_targets {tuple(visit_size_targets.shape)} != idx "
+                    f"{tuple(idx.shape)}：标签没有跟着 get_batch 的裁剪/位移走。")
+                M = self.config.max_visit_size
+                size_logits = self.size_head(x).reshape(-1, M)
+                k = visit_size_targets.reshape(-1)
+                # k 截到 M，顶格那一类读作 ">= M"。get_batch 只在"下一个 token 开启一次
+                # **新**访视"的位置给 k（其余 -1），这正好是生成时会去问 size_head 的
+                # 位置分布：采到一个非 no-event token 才补发整次访视。
+                k_cls = torch.where(k >= 1, torch.clamp(k, max=M) - 1, torch.full_like(k, -1))
+                valid_k = k_cls >= 0
+                ce = F.cross_entropy(size_logits, k_cls.clamp(min=0), reduction='none')
+                loss_size = (ce * valid_k).sum() / valid_k.sum().clamp(min=1)
+                loss['loss_size'] = loss_size
+
+
             #loss += 5.0 * F.mse_loss(lse.view(-1)*(ldt != 0), ldt) ## Adds MSE for log time difference to next observed event
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, :, :]) # note: using list [-1] to preserve the time dim
             loss = None
+            if self.config.visit_heads:
+                # 一次性（Python 默认 warning filter 按代码行去重）。visit_heads=True 之后
+                # loss_dt 不再经过 lm_head，logits 的**尺度**就不再是速率，任何
+                # `exp(-logits)` 当等待时间的采样器（本文件的 generate、
+                # figure2_eval/radc_delphi/engine.simulate）都会输出垃圾而不报错。
+                # 推理侧要用时间/大小，请直接调 model.time_head / model.size_head。
+                warnings.warn(
+                    "visit_heads=True: lm_head 的 logits 不再被训练成事件速率。"
+                    "任何把 exp(-logits) 当等待时间的采样器（engine.simulate / generate）"
+                    "必须改成用 time_head + size_head，否则结果是静默错的。")
 
         return logits, loss, att
 
@@ -303,6 +453,11 @@ class Delphi(nn.Module):
         We are then returning the PyTorch optimizer object.
         """
 
+        # aux_head / time_head / size_head 都是 nn.Linear：.weight 走下面的 whitelist 进
+        # decay、.bias 走 endswith('bias') 进 no_decay，不需要任何特判。下面那句
+        # `assert len(param_dict.keys() - union_params) == 0` 就是这件事的看门狗 ——
+        # 哪天新头不是 Linear 了（比如 nn.Parameter），它会在第一步就炸，而不是静默地
+        # 让那组参数完全不被优化器更新。
         # separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
@@ -368,6 +523,16 @@ class Delphi(nn.Module):
         death reasons.
         top_k: None, does nothing
         """
+        if self.config.visit_heads:
+            # 宁可炸也不要静默出错：下面的采样把 exp(-logits) 当每个 token 的等待时间取 min，
+            # 而 visit_heads=True 时速率在 time_head 里、访视大小在 size_head 里，logits 只剩
+            # "发什么"。照原样跑不会报错，只会给出一个时间尺度完全错的轨迹。
+            raise RuntimeError(
+                "Delphi.generate() 不支持 visit_heads=True：速率在 time_head、访视大小在 "
+                "size_head，这里的 `-exp(-logits)*log(u)` 取 min 已经失效。需要的采样是："
+                "wait ~ Exp(time_head)，k ~ Categorical(size_head)，再从 softmax(lm_head) "
+                "抽 k 个 token 放在同一个 age 上（参考 figure2_eval/radc_delphi/engine.py "
+                "的 use_visit_sizes 分支，把经验分布换成 size_head）。")
         if termination_tokens is None:
             warnings.warn('When using a custem dataset, consider changing the `termination_tokens` argument.')
             termination_tokens = [1269]

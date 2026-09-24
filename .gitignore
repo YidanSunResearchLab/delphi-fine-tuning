@@ -45,3 +45,15 @@ Thumbs.db
 # Monte-Carlo rollout caches written by eval/evaluate.py -- regenerable, and each one is
 # hundreds of KB keyed on a checkpoint md5.
 eval/cache/
+
+# ── 2026-09-23 追加：上面的规则没盖住的派生物 ─────────────────────────────────
+# data_* 目录：tokenization/build.py --out 的产物，里面有 .bin（受限）以及可再生的
+# labels.csv / meta.json。整个目录排除，避免"只挡住 .bin、把词表和分箱规格留下"这种半吊子。
+data_*/
+# 从受限数据算出来的派生统计量（访视大小分布、逐行判别标签）。不是参与者级，但由受限数据推出，
+# 且都能用 make_visit_sizes.py / make_aux_labels.py 重新生成。
+*.npy
+# 本地归档的旧结果；results/ 已排除，这个是它改名后的孪生目录。
+results_local_archive/
+# 集群日志（logs/*.out|err 已排除，这个是回传到本地的那份）。
+ris_logs/

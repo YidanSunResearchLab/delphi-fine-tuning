@@ -111,7 +111,8 @@ def load(ckpt_path, data_dir=None, device="cpu", strict_vocab=True, vocab_labels
             f"table is not the one this checkpoint was trained on.")
     # no-repeat 规则跟着**这份**分词走（meta.json 与 labels.csv 同目录），不跟着 live 模块走。
     rep = V.repeatable_prefixes_for(lp) if lp else tuple(V.REPEATABLE_PREFIXES)
-    res = V.resolve(labels, rep)
+    rep_ids = V.repeatable_ids_for(lp) if lp else None
+    res = V.resolve(labels, rep, rep_ids)
     ck_ignore = sorted(int(t) for t in args.get("ignore_tokens", res.IGNORE_TOKENS))
     if strict_vocab and ck_ignore != sorted(res.IGNORE_TOKENS):
         raise RuntimeError(
@@ -125,12 +126,14 @@ def load(ckpt_path, data_dir=None, device="cpu", strict_vocab=True, vocab_labels
     model.load_state_dict(sd)
     model.to(device).eval()
     return Engine(model, args, device, ckpt=ck, data_dir=data_dir, ckpt_path=ckpt_path,
-                  ckpt_sig=_fingerprint(ckpt_path), labels=labels, repeatable_prefixes=rep)
+                  ckpt_sig=_fingerprint(ckpt_path), labels=labels, repeatable_prefixes=rep,
+                  repeatable_ids=rep_ids)
 
 
 class Engine:
     def __init__(self, model, args, device, ckpt=None, data_dir=None, ckpt_path=None,
-                 ckpt_sig=None, labels=None, allow_no_event=True, repeatable_prefixes=None):
+                 ckpt_sig=None, labels=None, allow_no_event=True, repeatable_prefixes=None,
+                 repeatable_ids=None):
         self.model = model
         self.args = args
         self.device = device
@@ -143,7 +146,7 @@ class Engine:
         self.ckpt_sig = ckpt_sig
         self.labels = list(labels) if labels is not None else list(V.NAMES)
         self.vocab_size = len(self.labels)
-        self.res = V.resolve(self.labels, repeatable_prefixes)
+        self.res = V.resolve(self.labels, repeatable_prefixes, repeatable_ids)
         # `ignore_tokens` comes off the CHECKPOINT, so a model trained against a different
         # static block keeps its own rather than inheriting the live one.
         ignore = set(int(t) for t in args.get("ignore_tokens", self.res.IGNORE_TOKENS))
@@ -373,6 +376,20 @@ class Engine:
         条轨迹相关；这里为每条轨迹独立抽 k，短于最大 k 的轨迹在多余位置填 padding（PAD_AGE），
         最终掩码会把它们排除，且不打乱剩余位置的时间顺序。
                 """
+        # ../../delphi/model.py 的 `visit_heads` 打开之后，速率在 time_head、访视大小在
+        # size_head，lm_head 的 logits 只剩"发什么"、**不再是速率**。下面那句
+        # `-exp(-logits)*log(u)` 照样能跑完，只会给出一条时间尺度完全错的轨迹 —— 没有报错、
+        # 没有 NaN、AUC 还是个像样的数。所以在这里硬炸。
+        # 只挡 rollout：probe_head / direct_head / probe_loss 只用编码器，那些路径不受影响，
+        # 因此这个检查**不能**放进 load()。
+        if self.args.get("visit_heads"):
+            raise RuntimeError(
+                "这个 checkpoint 是用 visit_heads=True 训练的：等待时间在 model.time_head、"
+                "访视大小在 model.size_head，simulate() 里的指数竞赛已经失效。需要的采样是 "
+                "wait ~ Exp(time_head(x))、k ~ Categorical(size_head(x))，再从 softmax(lm_head) "
+                "抽 k 个 token 放在同一个 age 上（即把下面 use_visit_sizes 分支里的 "
+                "self.visit_sizes 经验分布换成 size_head）。判别头（aux_head）不受影响，"
+                "它不参与生成。")
         g = torch.Generator(device="cpu").manual_seed(int(seed))
         pre_t = np.asarray(tokens)[-self.block_size:]
         pre_a = np.asarray(ages)[-self.block_size:]
