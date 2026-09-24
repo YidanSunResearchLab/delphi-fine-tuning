@@ -85,11 +85,15 @@ def auc_and_ci(y, s, groups, n_boot=N_BOOT):
     return float(a), (float(lo), float(hi)), int(y.sum()), int(len(y))
 
 
-def truth_table(data_dir):
-    """从**不去重**那份 val.bin 读真值：{projid: [(age, {token ids at that age}), ...]}，只留临床 token。"""
+def truth_table(data_dir, split="val"):
+    """从**不去重**那份 .bin 读真值：{projid: [(age, {token ids at that age}), ...]}，只留临床 token。
+
+    `split` 存在是为了让 change_skill.py 能在 **train** 上拟合持续率和 Markov 转移矩阵 ——
+    基线必须只看训练数据，否则它是在偷看评估集，比较就没意义了。
+    """
     res = V.resolve_csv(os.path.join(data_dir, "labels.csv"))
     skip = set(res.IGNORE_TOKENS) | {res.NO_EVENT}
-    d = np.fromfile(os.path.join(data_dir, "val.bin"), dtype=np.uint32).reshape(-1, 3)
+    d = np.fromfile(os.path.join(data_dir, f"{split}.bin"), dtype=np.uint32).reshape(-1, 3)
     out = {}
     for pid in np.unique(d[:, 0]):
         rows = d[d[:, 0] == pid]

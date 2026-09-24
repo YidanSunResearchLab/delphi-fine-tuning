@@ -1,8 +1,8 @@
 """
 compare_runs.py -- 把两次 figure2 run 的 panel a / panel b 指标并排列出来。
 
-    python compare_runs.py results/figure2/gpubase results/figure2/nodedup \
-        --names dedup nodedup --cohort matched
+    python compare_runs.py results/figure2/{gpubase,nodedup,fullvisit} \
+        --names dedup cog-nodedup all-nodedup --cohort matched
 
 为什么需要它：`FIG2_TAG` 让多次 run 的输出各自成目录，但 metrics_*.json 是嵌套的，肉眼对读
 八行 AUC × 两组 CI 很容易串行。这个脚本只做**对齐和排版**，不重算任何统计量。
@@ -34,76 +34,115 @@ def fmt(x, n=3):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("dirs", nargs=2, help="两个 run 的输出目录（results/figure2/<tag>）")
-    ap.add_argument("--names", nargs=2, default=["A", "B"])
+    ap.add_argument("dirs", nargs="+", help="各 run 的输出目录（results/figure2/<tag>）")
+    ap.add_argument("--names", nargs="+", default=None)
     ap.add_argument("--cohort", default="matched", choices=["matched", "allcohort"])
     a = ap.parse_args()
-    (n1, n2), (m1, m2) = a.names, [load(d, a.cohort) for d in a.dirs]
+    names = a.names or [os.path.basename(d.rstrip("/")) or d for d in a.dirs]
+    if len(names) != len(a.dirs):
+        sys.exit(f"--names 给了 {len(names)} 个，目录有 {len(a.dirs)} 个")
+    Ms = [load(d, a.cohort) for d in a.dirs]
+    runs = list(zip(names, Ms))
 
     print(f"# figure2 对照  cohort={a.cohort}")
-    print(f"  {n1:<10s} {a.dirs[0]}")
-    print(f"  {n2:<10s} {a.dirs[1]}\n")
+    for n, d in zip(names, a.dirs):
+        print(f"  {n:<14s} {d}")
+    print()
 
     # ---------------------------------------------------------------- panel a
-    A1, A2 = m1["a"], m2["a"]
+    As = [m["a"] for m in Ms]
     print("## panel a — 5 年内到达各状态")
-    print(f"  可评估人数（panel c 的 n_patients 代理）: {n1} {m1['c']['n_patients']} | "
-          f"{n2} {m2['c']['n_patients']}")
-    print(f"  median AUC          {n1} {fmt(A1['median_auc'])}   {n2} {fmt(A2['median_auc'])}")
-    print(f"  mean calib error    {n1} {fmt(A1['mean_calibration_error'],4)}   "
-          f"{n2} {fmt(A2['mean_calibration_error'],4)}")
-    t1, t2 = A1.get("transition_time", {}), A2.get("transition_time", {})
-    print(f"  转移时间 R²/MAE/bias {n1} {fmt(t1.get('r2'))}/{fmt(t1.get('mae'),2)}/"
-          f"{fmt(t1.get('bias'),2)}   {n2} {fmt(t2.get('r2'))}/{fmt(t2.get('mae'),2)}/"
-          f"{fmt(t2.get('bias'),2)}\n")
+    print("  可评估人数（panel c 的 n_patients 代理）: "
+          + " | ".join(f"{n} {m['c']['n_patients']}" for n, m in runs))
+    print("  median AUC        " + "  ".join(f"{n} {fmt(A['median_auc'])}"
+                                             for n, A in zip(names, As)))
+    print("  mean calib error  " + "  ".join(f"{n} {fmt(A['mean_calibration_error'],4)}"
+                                             for n, A in zip(names, As)))
+    print("  转移时间 R²/MAE/bias " + "  ".join(
+        f"{n} {fmt(A.get('transition_time',{}).get('r2'))}/"
+        f"{fmt(A.get('transition_time',{}).get('mae'),2)}/"
+        f"{fmt(A.get('transition_time',{}).get('bias'),2)}" for n, A in zip(names, As)))
+    print()
 
-    rows = list(A1["per_state"]) + [k for k in A2["per_state"] if k not in A1["per_state"]]
-    hdr = (f"{'状态':<26s} {'n@risk(' + n1 + '/' + n2 + ')':>16s} "
-           f"{'events':>12s} {'AUC ' + n1:>12s} {'AUC ' + n2:>12s} {'Δ':>7s}  "
-           f"{'实测/预测 ' + n1:>16s} {'实测/预测 ' + n2:>16s}")
+    rows = []
+    for A in As:
+        rows += [k for k in A["per_state"] if k not in rows]
+    hdr = f"{'状态':<26s}" + "".join(f"{'AUC ' + n:>20s}" for n in names) + \
+          f"{'events':>8s}  {'at-risk':>16s}"
+    print(hdr)
+    print("-" * len(hdr))
+    # 第一个 run 是基准列，Δ 都相对它算
+    for k in rows:
+        ps = [A["per_state"].get(k) for A in As]
+        line = f"{k:<26s}"
+        for j, p in enumerate(ps):
+            if p is None:
+                line += f"{'—':>20s}"
+                continue
+            if j == 0:
+                line += f"{p['auc']:>10.3f}          "
+            else:
+                base = ps[0]
+                d = p["auc"] - base["auc"] if base else float("nan")
+                # CI 宽度的一半作为"噪声尺度"；差异没超过它就不值得解读
+                half = max(base["ci"][1] - base["ci"][0], p["ci"][1] - p["ci"][0]) / 2 if base else 0
+                line += f"{p['auc']:>10.3f}({d:+.3f}){'*' if abs(d) > half else ' '}"
+        ev = next((p["n_events"] for p in ps if p), 0)
+        ar = "/".join(str(p["n_at_risk"]) if p else "—" for p in ps)
+        print(line + f"{ev:>8d}  {ar:>16s}")
+    print("  * = |ΔAUC| 相对第一列超过两者 CI 半宽的较大者（单 seed，小于这个别解读）")
+    print()
+    hdr = f"{'状态':<26s}{'实测':>8s}" + "".join(f"{'预测 ' + n:>16s}" for n in names)
     print(hdr)
     print("-" * len(hdr))
     for k in rows:
-        p, q = A1["per_state"].get(k), A2["per_state"].get(k)
-        if p is None or q is None:
-            print(f"{k:<26s} {'只在一侧出现':>16s}")
-            continue
-        d = q["auc"] - p["auc"]
-        # CI 宽度的一半作为"噪声尺度"；差异没超过它就不值得解读
-        half = max(p["ci"][1] - p["ci"][0], q["ci"][1] - q["ci"][0]) / 2
-        mark = "*" if abs(d) > half else " "
-        nmark = "!" if abs(q["n_at_risk"] - p["n_at_risk"]) > 0.1 * p["n_at_risk"] else " "
-        print(f"{k:<26s} {p['n_at_risk']:>7d}/{q['n_at_risk']:<7d}{nmark}"
-              f"{p['n_events']:>5d}/{q['n_events']:<6d}"
-              f"{p['auc']:>12.3f}{q['auc']:>13.3f}{d:>+8.3f}{mark} "
-              f"{p['observed_cif']:>7.3f}/{p['predicted']:<8.3f}"
-              f"{q['observed_cif']:>7.3f}/{q['predicted']:<8.3f}")
-    print("  * = |ΔAUC| 超过两边 CI 半宽的较大者   ! = at-risk 人数差 >10%（行不同人，别直接对读）\n")
+        ps = [A["per_state"].get(k) for A in As]
+        obs = next((p["observed_cif"] for p in ps if p), float("nan"))
+        line = f"{k:<26s}{obs:>8.3f}"
+        for p in ps:
+            if p is None:
+                line += f"{'—':>16s}"
+            else:
+                r = p["observed_cif"] / p["predicted"] if p["predicted"] > 0 else float("inf")
+                line += f"{p['predicted']:>9.3f}({r:>4.1f}x)"
+        print(line)
+    print("  括号里是 实测/预测 的倍数，1.0x = 定标准确\n")
 
     # ---------------------------------------------------------------- panel b
     print("## panel b — 按 horizon 的 AUC")
-    B1, B2 = m1["b"]["auc_by_horizon"], m2["b"]["auc_by_horizon"]
-    hz = sorted({h for d in (B1, B2) for v in d.values() for h in v}, key=float)
-    print(f"{'终点':<34s} {'run':<10s} " + "".join(f"{h + 'y':>8s}" for h in hz))
-    for k in list(B1) + [x for x in B2 if x not in B1]:
-        for nm, B in ((n1, B1), (n2, B2)):
+    Bs = [m["b"]["auc_by_horizon"] for m in Ms]
+    hz = sorted({h for B in Bs for v in B.values() for h in v}, key=float)
+    eps = []
+    for B in Bs:
+        eps += [k for k in B if k not in eps]
+    print(f"{'终点':<32s}{'run':<14s}" + "".join(f"{h + 'y':>8s}" for h in hz))
+    for k in eps:
+        for nm, B in zip(names, Bs):
             v = B.get(k, {})
-            print(f"{k:<34s} {nm:<10s} " + "".join(f"{v.get(h, float('nan')):>8.3f}" for h in hz))
+            print(f"{k:<32s}{nm:<14s}"
+                  + "".join(f"{v.get(h, float('nan')):>8.3f}" for h in hz))
         print()
 
     print("## panel b — timing error (MAE 年 / bias 年，按真实首达时间分箱)")
-    T1, T2 = m1["b"]["timing_error"], m2["b"]["timing_error"]
-    for k in list(T1) + [x for x in T2 if x not in T1]:
+    Ts = [m["b"]["timing_error"] for m in Ms]
+    eps = []
+    for T in Ts:
+        eps += [k for k in T if k not in eps]
+    for k in eps:
         print(f"  {k}")
-        bins = list(T1.get(k, {})) + [b for b in T2.get(k, {}) if b not in T1.get(k, {})]
+        bins = []
+        for T in Ts:
+            bins += [b for b in T.get(k, {}) if b not in bins]
+        print(f"    {'bin':<8s}{'n':>5s}" + "".join(f"{'MAE ' + n:>14s}" for n in names)
+              + "".join(f"{'bias ' + n:>14s}" for n in names) + f"{'naive MAE':>11s}")
         for b in bins:
-            p, q = T1.get(k, {}).get(b), T2.get(k, {}).get(b)
-            g = lambda x, f: "—" if x is None else f"{x[f]:.2f}"
-            gn = lambda x: "—" if x is None else str(x["n"])
-            print(f"    {b:<8s} n {gn(p):>4s}/{gn(q):<4s}  "
-                  f"MAE {g(p,'mae'):>6s}/{g(q,'mae'):<6s}  "
-                  f"bias {g(p,'bias'):>7s}/{g(q,'bias'):<7s}  "
-                  f"(naive MAE {g(p,'naive_mae'):>6s}/{g(q,'naive_mae'):<6s})")
+            cells = [T.get(k, {}).get(b) for T in Ts]
+            n = next((c["n"] for c in cells if c), 0)
+            nv = next((c["naive_mae"] for c in cells if c), float("nan"))
+            print(f"    {b:<8s}{n:>5d}"
+                  + "".join(f"{(c['mae'] if c else float('nan')):>14.2f}" for c in cells)
+                  + "".join(f"{(c['bias'] if c else float('nan')):>14.2f}" for c in cells)
+                  + f"{nv:>11.2f}")
         print()
 
 

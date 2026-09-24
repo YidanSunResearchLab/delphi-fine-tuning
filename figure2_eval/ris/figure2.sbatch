@@ -79,11 +79,48 @@ fi
 case "${JOB:-figure2}" in
   figure2) WORKERS="$WORKERS" DEVICE="${DEVICE:-cpu}" DATA="data/$DATASET" CKPT="$CKPT" \
              ./run_figure2.sh "$@" ;;
-  # 下一次访视的判别力（无 rollout）。它自己同时加载两个 ckpt，所以不走 DATASET/CKPT。
-  nva)     python -u next_visit_auc.py \
-             --runs dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
-                    nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup \
-             --out results/next_visit_auc_records.json "$@" ;;
+  # 下一次访视的判别力（无 rollout）。它自己同时加载多个 ckpt，所以不走 DATASET/CKPT，
+  # 而是用 RUNS="name:ckpt:dataset ..." 指定。真值一律取 --truth-dataset（必须是最不去重
+  # 那份，它才是忠实记录）。
+  nva)     python -u next_visit_auc.py --runs ${RUNS:-\
+             dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup} \
+             --truth-dataset "${TRUTH_DS:-rosmap_nodedup}" \
+             --out "results/next_visit_auc_${NVA_TAG:-default}.json" "$@" ;;
+  # 最朴素的口径：预测下一个 token（训练目标本身）。每个模型在**自己的**流上，分母不同。
+  nta)     python -u next_token_auc.py --runs ${RUNS:-\
+             dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup \
+             fullvisit:../delphi/Delphi-ROSMAP-fullvisit/ckpt.pt:rosmap_fullvisit} \
+             --out "results/next_token_auc_${NTA_TAG:-default}.json" "$@" ;;
+  # 区分"复读当前状态"和"真学到变化"：对持续性 / 一阶 Markov 两个基线报 skill score
+  chg)     python -u change_skill.py --runs ${RUNS:-\
+             dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup \
+             fullvisit:../delphi/Delphi-ROSMAP-fullvisit/ckpt.pt:rosmap_fullvisit} \
+             --out "results/change_skill_${CHG_TAG:-default}.json" "$@" ;;
+  # 两个"视野极窄"的基线：完全不转变 / 只看当次访视 token 的 logistic
+  wbl)     python -u window_baselines.py --runs ${RUNS:-\
+             dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup \
+             fullvisit:../delphi/Delphi-ROSMAP-fullvisit/ckpt.pt:rosmap_fullvisit} \
+             --out "results/window_baselines_${WBL_TAG:-default}.json" "$@" ;;
+  # figure2 终点上的逻辑回归对照（不跑 MC，纯观测 + 基线前缀特征）
+  lrb)     python -u lr_endpoint_baseline.py \
+             --out "results/lr_endpoint_baseline_${LRB_TAG:-default}.json" "$@" ;;
+  # 方案2 第一步：冻结 encoder，基线前缀隐状态 vs 原始特征，接 logistic 判别头
+  dh)      python -u direct_head.py --runs ${RUNS:-\
+             dedup:../delphi/Delphi-ROSMAP-gpubase/ckpt.pt:rosmap \
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup \
+             fullvisit:../delphi/Delphi-ROSMAP-fullvisit/ckpt.pt:rosmap_fullvisit} \
+             --tags ${DH_TAGS:-gpubase nodedup fullvisit} \
+             --eval-split "${EVAL_SPLIT:-val}" \
+             --out "results/direct_head_${DH_TAG:-default}.json" "$@" ;;
+  # 扰动引擎评估：剂量反应 / 零扰动对照 / 注入对照 / 靶点-脱靶 / MC 噪声地板
+  pe)      python -u perturbation_eval.py --runs ${RUNS:-\
+             nodedup:../delphi/Delphi-ROSMAP-nodedup/ckpt.pt:rosmap_nodedup} \
+             --n-mc "${NMC:-100}" --workers "$WORKERS" \
+             --out "results/perturbation_eval_${PE_TAG:-default}.json" "$@" ;;
   pvo)     python predict_vs_observe.py --workers "$WORKERS" "$@" ;;
   sweep)   python predict_vs_observe.py --sweep --workers "$WORKERS" "$@" ;;
   diag)    python diagnostics.py --threads 8 "$@" ;;

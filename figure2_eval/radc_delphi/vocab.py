@@ -54,6 +54,25 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LABELS_CSV = os.environ.get("ROSMAP_LABELS", os.path.join(HERE, "data", "rosmap", "labels.csv"))
 
 
+def repeatable_ids_for(labels_csv):
+    """这份 build **实测**为可重复的 token id（model space），没有就返回 None。
+
+    build.py 在写出 .bin 之后数了一遍"哪些 token 对某个人出现过 >1 次"，写进
+    meta.json 的 `repeatable_tokens_postshift`。这比前缀可靠：`--no-global-dedup` 会让
+    用药 ON/OFF 也重复，而它不在任何 `--nodedup` 前缀里，按前缀推会**漏**——漏掉的后果是
+    生成侧把第二次 `STATIN_ON` 永久封掉，数据里明明有。
+
+    返回 None 表示这份 meta.json 是旧格式（没有这个键），调用方退回前缀规则。
+    """
+    meta = os.path.join(os.path.dirname(os.path.abspath(labels_csv)), "meta.json")
+    if not os.path.exists(meta):
+        return None
+    with open(meta) as fh:
+        m = json.load(fh)
+    v = m.get("repeatable_tokens_postshift")
+    return None if v is None else tuple(int(x) for x in v)
+
+
 def repeatable_prefixes_for(labels_csv):
     """这份 build 声明为"可重复"的 token 名前缀。
 
@@ -129,7 +148,7 @@ DISPLAY = {
 class Resolved:
     """Id families for ONE label table. Attribute names mirror upstream's `Resolved`."""
 
-    def __init__(self, labels, repeatable_prefixes=None):
+    def __init__(self, labels, repeatable_prefixes=None, repeatable_ids=None):
         self.NAMES = [str(x) for x in labels]
         self.VOCAB_SIZE = len(self.NAMES)
         self.ID = {n: i for i, n in enumerate(self.NAMES)}
@@ -185,8 +204,13 @@ class Resolved:
         # （并相应改 spec，因为 Delphi 的 no_repeat 语义也会跟着变）。
         pre = tuple(REPEATABLE_PREFIXES if repeatable_prefixes is None else repeatable_prefixes)
         self.REPEATABLE_PREFIXES = pre
-        self.REPEATABLE_TOKENS = tuple(i for i, n in enumerate(self.NAMES)
-                                       if pre and n.startswith(pre))
+        if repeatable_ids is not None:
+            # 实测的 id 列表优先。它是 .bin 的事实，前缀只是命令行参数的回声。
+            self.REPEATABLE_TOKENS = tuple(sorted(int(t) for t in repeatable_ids
+                                                  if 0 <= int(t) < self.VOCAB_SIZE))
+        else:
+            self.REPEATABLE_TOKENS = tuple(i for i, n in enumerate(self.NAMES)
+                                           if pre and n.startswith(pre))
 
         # Statics are whatever is left, and they must be contiguous -- if they are not, a token
         # was renamed out of a family above and would be silently treated as a covariate.
@@ -237,15 +261,15 @@ class Resolved:
         return DISPLAY.get(n, n)
 
 
-def resolve(labels, repeatable_prefixes=None):
+def resolve(labels, repeatable_prefixes=None, repeatable_ids=None):
     """`Resolved` for a label table (a list of names in id order, i.e. labels.csv's column)."""
-    return Resolved(labels, repeatable_prefixes)
+    return Resolved(labels, repeatable_prefixes, repeatable_ids)
 
 
 def resolve_csv(path):
     """`Resolved` for a build's labels.csv, with that build's own no-repeat rule."""
     return Resolved([str(x) for x in pd.read_csv(path)["event_name"].tolist()],
-                    repeatable_prefixes_for(path))
+                    repeatable_prefixes_for(path), repeatable_ids_for(path))
 
 
 # ---------------------------------------------------------------- the live table

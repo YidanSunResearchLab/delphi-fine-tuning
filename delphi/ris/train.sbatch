@@ -4,6 +4,11 @@
 #   CFG=config/train_delphi_rosmap.py         sbatch ris/train.sbatch   # 交付版（认知量表去重）
 #   CFG=config/train_delphi_rosmap_nodedup.py sbatch ris/train.sbatch   # 认知量表不去重
 #
+# general-gpu 排不上队时（实测优先级可能只有 1，START_TIME 估到两天后）改投可抢占分区：
+#   sbatch -p general-preempt-gpu ris/train.sbatch
+# 这个任务只要 ~15 分钟，被抢占的代价就是重投一次；但注意 always_save_checkpoint=False，
+# 被抢占等于从头开始，**不要**用它跑长任务。
+#
 # 为什么用 GPU 而不是 compute2 的 general-cpu：模型只有 0.69M 参数，但 12,000 iter ×
 # batch 128 × block 144 在 32 核 CPU 上实测量级是 ~5 s/iter（16 小时）。GPU 上是分钟级。
 #
