@@ -76,6 +76,11 @@ aux_lambda = 0.0
 # 注意：打开之后 lm_head 的 logits 不再是速率，采样侧必须同步改，见 model.py 的注释。
 visit_heads = False
 max_visit_size = 24
+# 信息消融（figure 3 的 transformer 基线）。默认 = 上游行为。不加参数，见 model.py 改动 C。
+attn_visits = 0
+static_only = False
+static_token_max = 33
+static_first_only = False
 ignore_tokens = [0]
 # inclusive pre-shift id range of the background/lifestyle block whose ages get jittered
 # (UKB default 3..11; ROSMAP's background block is wider)
@@ -170,7 +175,9 @@ model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=bloc
                   mask_ties=mask_ties, ignore_tokens=ignore_tokens,
                   pos_embedding=pos_embedding,
                   aux_head=aux_head, aux_n_targets=aux_n_targets, aux_lambda=aux_lambda,
-                  visit_heads=visit_heads, max_visit_size=max_visit_size)  # start with model_args from command line
+                  visit_heads=visit_heads, max_visit_size=max_visit_size,
+                  attn_visits=attn_visits, static_only=static_only,
+                  static_token_max=static_token_max, static_first_only=static_first_only)  # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch

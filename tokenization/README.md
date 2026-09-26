@@ -132,6 +132,44 @@ ris/deploy.sh --raw --submit -- --out data_rosmap_fullvisit --dataset rosmap_ful
 加 `--per-visit-events` 之后，`--nodedup all --no-global-dedup` 的输出也仍与集群上那份
 `rosmap_fullvisit` **md5 一致**（新开关是纯新增，不改现有路径）。
 
+## 完全不去重：`--snapshot`（每次访视发射完整状态）
+
+上面三个开关都关不掉"只记录变化"这种编码本身：用药是 ON/OFF 开关、慢性病只发一次 `*_ONSET`、
+背景块只在基线发一次。`--snapshot` 取消去重这个概念 —— **每次访视都发射这个人当时的完整状态**：
+
+| 信息 | 默认 / 上面几个开关 | `--snapshot` |
+|---|---|---|
+| 性别、背景块、APOE、`*_PREVALENT` | 只在基线 | 每次访视 |
+| 连续量 | 见上 | 每次测了就发（= `--nodedup all`） |
+| 用药 | 开 / 关时各一次 | 每次访视按当时状态发 `*_ON` 或 `*_OFF` |
+| `*_ONSET` | 首次发病一次 | 首次起每次访视 |
+| `AD_DX` | 首诊一次 | 首诊起每次访视（到死亡为止） |
+| STROKE / DEPRESSION | 首次 | 每次被置位的访视（= `--per-visit-events`） |
+| Death、死后病理 | 一次 | 一次（吸收态 / 单次测量） |
+
+隐含 `--nodedup all --no-global-dedup --per-visit-events`。量级（两分）：798,276 行（交付版的 5 倍），
+序列中位 155、p99 526、max 710 → 训练用 `block_size = 736`（`delphi/config/train_delphi_rosmap_snapshot.py`）。
+
+**首次出现不变**是这个开关的硬约束：figure 3 的 AUC 用首次出现口径，各分词之间比 AUC 的前提是每个
+(人, token) 的首次出现时刻逐位相同。所以入组即患病的人仍由 `*_PREVALENT` 表示，不凭空多出 `*_ONSET`。
+唯一的例外是 `*_OFF`：语义从"停药"变成"本次未用药"（从没用过药的人也有），评估本来就排除 OFF。
+`test_snapshot_first_occurrence.py` 把这一条和"只加不删""每次访视都带背景块"一起钉死：
+
+```bash
+python build.py --out /tmp/pve  --nodedup all --no-global-dedup --per-visit-events
+python build.py --out /tmp/snap --snapshot
+python test_snapshot_first_occurrence.py /tmp/pve /tmp/snap
+```
+
+两类时刻不是访视、不带背景块：死亡时刻（只有 Death 和病理），以及孤立的 AD 首诊时刻
+（`age_first_ad_dx` 有时不落在任何访视上，各分词都这样；为了首次出现不变，这个时刻不能挪）。
+
+已知的配方交互：`lifestyle_augmentations` 会给背景块 token 的年龄加抖动，snapshot 里每一份拷贝都
+会被各自抖动。配方保持和其它几支相同，否则差异里会混进配方变量。
+
+加了 `--snapshot` 之后，默认输出与交付版 md5 仍一致，`--nodedup all --no-global-dedup --per-visit-events`
+的输出与改动前逐位一致（新开关是纯新增）。
+
 ## 三分 split：`--split train,val,test`
 
 `figure2_eval/README.md` 第 3.3 节的问题：`delphi/train.py` 用 `always_save_checkpoint = False`，

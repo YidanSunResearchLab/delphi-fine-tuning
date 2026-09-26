@@ -115,7 +115,7 @@ def panel_letter(ax, letter):
 
 def _save(fig, stem, data=None):
     stem = stem + SUFFIX
-    pdf, png = ps.save_fig(fig, OUT, stem)
+    png = ps.save_fig(fig, OUT, stem)
     if data is not None:
         ps.save_data(data, OUT, stem)
     log.info("  saved %s", os.path.basename(png))

@@ -211,6 +211,35 @@ class DelphiConfig:
     # 是静默的：模型学不会补发那么多 token，生成出来的访视会系统性偏小。
     max_visit_size: int = 24
 
+    # ---------------------------------------------------------------- 改动 C：信息消融（figure 3 基线）
+    # 为什么要它：figure 3 的基线必须是 **transformer 本身**，同架构、同配方，只拿掉一部分信息，
+    # 这样"主模型 − 基线"才能读成"transformer 从这部分信息里挣到了多少"。两个开关都**不加参数**，
+    # 只改 forward 里的输入和注意力 mask，所以 state_dict 与关着时完全相同，推理时也可以直接
+    # 覆盖到一个训好的 ckpt 上（= 截断上下文的推理消融）。
+    #
+    # attn_visits = 1：每个位置只能注意背景块 + 当前这次访视 —— "只看现在"的 transformer。
+    #   只支持 1：k>=2 的滑动窗口会跨层泄漏（见 _scope_mask）；推理时的"最近 k 次"截断改在
+    #   evaluate_auc_rosmap_controls.py 里重建输入序列来做。访视按**非背景真实 token** 的年龄变化计数，背景块按 id 识别
+    #   —— 不能按年龄，因为 lifestyle_augmentations 会把背景块的年龄抖到 ±20/40 年外。
+    #   no-event token 不开新访视，所以访视之间的 no-event 预测点看到的是上一次访视。
+    #   和 mask_ties 叠加（取交集），所以同访视内的预测仍然看不到同访视的 token。
+    #   要看到完整的"现在"，得配 fullvisit 数据（每次访视发射全部状态）；在去重数据上"当前
+    #   访视"只有变化的那几个量。
+    # static_only = True：非背景 token 在**输入**里一律换成 no-event（目标不变），且只能注意
+    #   背景块和自己。模型知道的只有性别、背景块和当前年龄 —— transformer 版的人口学先验。
+    #   必须两件一起做：只改 mask 不改输入的话，残差流里仍带着自己那个 token 的身份。
+    # 两个都要配 pos_embedding=False：位置下标 = 前面有多少个 token = 历史有多长。
+    attn_visits: int = 0
+    static_only: bool = False
+    # 背景块（含性别）的 post-shift id 上界：背景 = [2, static_token_max]。ROSMAP 是 33，
+    # 与 ignore_tokens = [0] + list(range(2, 34)) 同一段。
+    static_token_max: int = 33
+    # 只让背景 token 的**每个 id 的第一份拷贝**参与改动 C 的注意力范围。snapshot 分词
+    # （tokenization/build.py --snapshot）每次访视都重发背景块，不加这一条的话，数背景拷贝
+    # 的份数 = 数访视次数，历史长度就漏进了"只看现在 / 只看人口学"的基线。第一份拷贝就是
+    # 其它分词里唯一的那一份，所以两种数据上的基线看到的背景信息相同。关着时与改动前逐位一致。
+    static_first_only: bool = False
+
 class Delphi(nn.Module):
 
     def __init__(self, config):
@@ -278,6 +307,40 @@ class Delphi(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
+    def _scope_mask(self, idx, age):
+        """改动 C 的注意力范围，(b, 1, t, t) bool，[q, k] = query q 能否看 key k。见 DelphiConfig。
+
+        必须对**多层叠加**封闭：第 l 层里 key 的表示已经混进了它自己第 l-1 层能看到的东西。
+        所以 (1) 背景 token 作为 query 只能看背景块 —— lifestyle_augmentations 会把它们挪到
+        访视之间，否则它们会吸收那次访视的信息再转交给后面的预测点；(2) 访视窗口只能是
+        互不相交的块（k=1），滑动窗口 k>=2 的感受野会随层数变成 (k-1)*n_layer+1 次访视
+        （test_scope_mask.py 实测 k=2 漏 4.8e-5）。"""
+        smax = self.config.static_token_max
+        b, t = idx.shape
+        eye = torch.eye(t, dtype=torch.bool, device=idx.device)[None, None]
+        is_static = (idx >= 2) & (idx <= smax)
+        if self.config.static_first_only:
+            # 位置 j 的 token 在 j 之前是否出现过：one-hot 沿时间做 cumsum（不含自己）
+            oh = F.one_hot(idx.clamp(min=0), num_classes=self.config.vocab_size)
+            seen_before = (oh.cumsum(1) - oh).gather(-1, idx.clamp(min=0).unsqueeze(-1)).squeeze(-1) > 0
+            is_static = is_static & ~seen_before
+        static_k = is_static.view(b, 1, 1, t)
+        if self.config.static_only:
+            return static_k | eye
+        # 访视编号：非背景真实 token 的年龄每变一次 +1。流按年龄排序，所以"上一个真实 token 的
+        # 年龄"就是到前一位为止的 cummax。no-event / padding / 背景块都不开新访视。
+        real = idx > smax
+        neg = torch.full_like(age, float("-inf"))
+        last = torch.cummax(torch.where(real, age, neg), dim=1).values
+        prev = torch.cat([neg[:, :1], last[:, :-1]], dim=1)
+        vid = torch.cumsum((real & (age != prev)).long(), dim=1)
+        same_visit = vid.view(b, 1, 1, t) == vid.view(b, 1, t, 1)
+        # 背景 query：只看背景；其余 query：背景 + 同一次访视。
+        # static_first_only 下，背景的重复拷贝既不当"背景"也不单独开访视：它们只作为所在访视的
+        # 普通成员被同访视的 query 看到（real 的定义不含背景，所以不改访视编号）。
+        is_static_q = ((idx >= 2) & (idx <= smax)).view(b, 1, t, 1)
+        return torch.where(is_static_q, static_k | eye, static_k | same_visit)
+
     def forward(self, idx, age, targets=None, targets_age=None, validation_loss_mode=False,
                 aux_targets=None, visit_size_targets=None):
         """新参数一律**追加在末尾**：engine.py / evaluate_auc*.py / train.py 都按位置传前四个。
@@ -292,7 +355,11 @@ class Delphi(nn.Module):
         #assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         # pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        if self.config.static_only:
+            # 非背景 token 在输入里抹成 no-event（id 1），年龄保留。目标 / padding mask 用原 idx。
+            tok_emb = self.transformer.wte(idx.masked_fill(idx > self.config.static_token_max, 1))
+        else:
+            tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         age_emb = self.transformer.wae(age.unsqueeze(-1)) # age embeddings of shape (b, t, n_embd)
         #age_emb = self.transformer.mlp(age_emb)
         x = self.transformer.token_drop(tok_emb)
@@ -311,8 +378,15 @@ class Delphi(nn.Module):
             attn_mask += (attn_mask.sum(-1, keepdim=True)==0) * torch.diag(torch.ones(idx.size(1), device=device)) > 0
         attn_mask = attn_mask + (idx==0).view(idx.size(0), 1, 1, idx.size(1)) * torch.diag(torch.ones(idx.size(1), device=device)) > 0 # Except for padding
         attn_mask *= torch.tril(torch.ones(idx.size(1),idx.size(1), device=device))[None,None,:,:] > 0 #self.transformer.h[0].attn.bias[:,:,:idx.size(1),:idx.size(1)] > 0
+        if self.config.attn_visits > 0 or self.config.static_only:
+            assert self.config.attn_visits in (0, 1), \
+                "attn_visits 只支持 1：k>=2 的滑动窗口会跨层泄漏，见 _scope_mask"
+            attn_mask = attn_mask & self._scope_mask(idx, age)
+            # 和上面 mask_ties 的处理一样：整行被遮空的位置只留自己，否则 softmax 出 NaN
+            eye = torch.eye(t, dtype=torch.bool, device=device)[None, None]
+            attn_mask = attn_mask | ((attn_mask.sum(-1, keepdim=True) == 0) & eye)
 
-        
+
         att = []
         for block in self.transformer.h:
             x, a = block(x, attn_mask)

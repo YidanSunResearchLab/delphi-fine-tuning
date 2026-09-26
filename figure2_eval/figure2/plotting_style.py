@@ -153,12 +153,12 @@ def new_fig(nrows=1, ncols=1, figsize=None):
 
 
 def save_fig(fig, out_dir, stem):
-    """Save both PDF (vector) and PNG (300 dpi). Returns the two paths."""
+    """Save PNG (300 dpi) only -- no PDF copies (user preference). Returns the path."""
     os.makedirs(out_dir, exist_ok=True)
-    pdf = os.path.join(out_dir, f"{stem}.pdf"); png = os.path.join(out_dir, f"{stem}.png")
-    fig.savefig(pdf); fig.savefig(png, dpi=300)
+    png = os.path.join(out_dir, f"{stem}.png")
+    fig.savefig(png, dpi=300)
     plt.close(fig)
-    return pdf, png
+    return png
 
 
 def save_data(df, out_dir, stem):
