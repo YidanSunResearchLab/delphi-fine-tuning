@@ -174,7 +174,7 @@ def main():
     ps.save_fig(fig, a.dir, stem)
     # source data, per this repo's convention: every panel ships the numbers behind it
     ps.save_data(pd.DataFrame(rows), a.dir, stem)
-    print(f"-> {os.path.join(a.dir, stem)}.png / .pdf / _data.csv")
+    print(f"-> {os.path.join(a.dir, stem)}.png / _data.csv")
 
 
 if __name__ == "__main__":

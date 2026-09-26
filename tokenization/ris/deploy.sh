@@ -28,7 +28,7 @@ done
 ssh -o BatchMode=yes "$HOST" "mkdir -p '$BASE/tokenization/logs' '$BASE/raw'"
 echo "=== 同步 tokenizer 代码"
 rsync -az --exclude '__pycache__/' --exclude '.DS_Store' -e "ssh -o BatchMode=yes" \
-  build.py spec.py README.md "$HOST:$BASE/tokenization/"
+  build.py spec.py README.md test_snapshot_first_occurrence.py "$HOST:$BASE/tokenization/"
 rsync -az --exclude '__pycache__/' -e "ssh -o BatchMode=yes" ris/ "$HOST:$BASE/tokenization/ris/"
 ssh -o BatchMode=yes "$HOST" "chmod +x $BASE/tokenization/ris/*.sh 2>/dev/null || true"
 

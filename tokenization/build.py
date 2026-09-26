@@ -36,6 +36,13 @@ _ap.add_argument("--per-visit-events", action="store_true",
 _ap.add_argument("--no-global-dedup", action="store_true",
                  help="连第 2 级（全局 first-occurrence）也整体关掉，不只是对 --nodedup 的前缀。"
                       "影响的是 CONT 之外还会往复的东西：用药 ON/OFF 的第二次开关。")
+_ap.add_argument("--snapshot", action="store_true",
+                 help="**取消去重这个概念**：每次访视都发射这个人当时的完整状态。隐含 --nodedup all "
+                      "--no-global-dedup --per-visit-events，并且：背景块（性别/背景/APOE/基线已患病）"
+                      "每次访视都发射；用药每次访视按当时状态发 ON 或 OFF；*_ONSET 和 AD_DX 从首次起每次"
+                      "访视都发射。每个 token 的**首次出现**与 --nodedup all --no-global-dedup "
+                      "--per-visit-events 逐位相同（入组即患病仍由 *_PREVALENT 表示，不凭空多出 *_ONSET），"
+                      "所以首次出现口径的 AUC 在各分词之间是同一道题。Death / 死后病理仍只发一次（吸收态 / 单次测量）。")
 _ap.add_argument("--split", default="0.9,0.1,0",
                  help="人级别划分比例 train,val,test。默认 0.9,0.1,0 = 交付版的两分行为："
                       "**不写 test.bin**，train.bin/val.bin 与 data_rosmap/ 里那两份字节级一致。"
@@ -43,6 +50,11 @@ _ap.add_argument("--split", default="0.9,0.1,0",
                       "结果都长在这份数据上；换成三分就是换了一份训练集，两边的数字不能对读。"
                       "例: --split 0.8,0.1,0.1（见 README 的三分 split 一节）")
 _A = _ap.parse_args()
+SNAPSHOT = bool(_A.snapshot)
+if SNAPSHOT:
+    if _A.nodedup.strip() not in ("", "all"):
+        raise SystemExit("--snapshot 已经隐含 --nodedup all，不要再给别的 --nodedup")
+    _A.nodedup, _A.no_global_dedup, _A.per_visit_events = "all", True, True
 OUT = _A.out
 DATASET = _A.dataset
 _cont_pre = [pre for _, pre, _, _ in spec.CONT]
@@ -90,6 +102,7 @@ print(f"输出 -> {OUT}   dataset={DATASET}")
 print(f"  run-length 去重豁免: {list(NODEDUP) or '无（交付版行为）'}")
 print(f"  全局 first-occurrence 去重: {'整体关闭' if NO_GLOBAL_DEDUP else '仅对上面的前缀豁免'}")
 print(f"  STROKE/DEPRESSION: {'每个被置位的访视都发射' if PER_VISIT_EVENTS else '只发首次（默认）'}")
+print(f"  完整状态快照（--snapshot）: {'开 —— 背景/用药/ONSET/AD_DX 每次访视都发射' if SNAPSHOT else '关'}")
 print(f"  split(train,val,test) = {F_TRAIN},{F_VAL},{F_TEST}"
       f"{'   两分（交付版行为，不写 test.bin）' if F_TEST <= 0 else '   三分'}")
 RNG  = np.random.default_rng(42)
@@ -239,17 +252,20 @@ for pid in cs.index:
         ev.append((G(ab, k), TOK[tok])); stats[cat] += 1
 
     # --- 背景（全部放在 age_bl；训练时会被 lifestyle_augmentations 随机偏移）---
-    add("MALE" if r.msex == 1 else "FEMALE", 0, "bg")
-    for var, pre, kind, rule in spec.BACKGROUND:
-        v = {"race": race.get(pid), "spanish": span.get(pid)}.get(var, r.get(var))
-        lab = BIN[var](v) if v is not None else None
-        key = f"{pre}_{lab}" if lab is not None else f"{pre}_unk"
-        if key in TOK: add(key, 0, "bg")
-        if var == "apoe_genotype" and pd.notna(v) and int(v) in spec.E2_CARRIER:
-            add("APOE_e2carrier", 0, "bg")                 # 额外发射，不替代剂量 token
+    # --snapshot：每次访视都把整块再发一遍（值不变，这正是"完整状态"的字面意思）。
+    vis_years = sorted(float(y) for y in g.fu_year.dropna().unique())
     b0 = g[g.fu_year == 0]
-    for var, pre in spec.PREVALENT:
-        if len(b0) and b0[var].iloc[0] == 1: add(f"{pre}_PREVALENT", 0, "bg")
+    for k in (vis_years if SNAPSHOT else [0]):
+        add("MALE" if r.msex == 1 else "FEMALE", k, "bg")
+        for var, pre, kind, rule in spec.BACKGROUND:
+            v = {"race": race.get(pid), "spanish": span.get(pid)}.get(var, r.get(var))
+            lab = BIN[var](v) if v is not None else None
+            key = f"{pre}_{lab}" if lab is not None else f"{pre}_unk"
+            if key in TOK: add(key, k, "bg")
+            if var == "apoe_genotype" and pd.notna(v) and int(v) in spec.E2_CARRIER:
+                add("APOE_e2carrier", k, "bg")             # 额外发射，不替代剂量 token
+        for var, pre in spec.PREVALENT:
+            if len(b0) and b0[var].iloc[0] == 1: add(f"{pre}_PREVALENT", k, "bg")
 
     # --- 事件 ---
     ad_k = None
@@ -270,16 +286,25 @@ for pid in cs.index:
             add(tok, float(h.fu_year.iloc[0]), "event")
     for var, pre in spec.ONSET:
         s = g[["fu_year", var]].dropna()
-        if len(s) and s[var].iloc[0] == 0:
+        if len(s) and s[var].iloc[0] == 0:                # 入组即患病的人走 *_PREVALENT，不发 ONSET
             j = s[s[var] == 1]
-            if len(j): add(f"{pre}_ONSET", float(j.fu_year.iloc[0]), "event")
+            if not len(j):
+                continue
+            k0 = float(j.fu_year.iloc[0])
+            # --snapshot：从首次起，之后每次访视都发（*_cum 是累积标志，患了就一直是"患有"）。
+            # 用访视年份而不是 *_cum==1 的行：累积量理论上不回落，但源数据偶有 1→0 的录入噪声，
+            # 按"首次之后的每次访视"发射才和"患有"的语义一致，且首次出现不变。
+            for k in ([y for y in vis_years if y >= k0] if SNAPSHOT else [k0]):
+                add(f"{pre}_ONSET", k, "event")
 
     # --- 用药：只在"开/关"发生时发射（首次为1也算开）---
     for var, pre in spec.MEDS:
         s = g[["fu_year", var]].dropna(); prev = 0
         for _, x in s.iterrows():
             v = int(x[var])
-            if v != prev: add(f"{pre}_{'ON' if v else 'OFF'}", float(x.fu_year), "med")
+            # --snapshot：每次有记录的访视都按当时状态发 ON / OFF（包括从没用过药的人的 OFF）。
+            # *_ON 的首次出现与开关编码相同；*_OFF 的语义从"停药"变成"本次未用药"，评估里排除 OFF。
+            if SNAPSHOT or v != prev: add(f"{pre}_{'ON' if v else 'OFF'}", float(x.fu_year), "med")
             prev = v
 
     # --- 连续量：硬分箱 + 去重（箱变化才发射，首次必发）---
@@ -302,6 +327,10 @@ for pid in cs.index:
     if ad_k is not None:                                       # AD_DX 吸附后再发射
         if death_k is not None: ad_k = min(ad_k, death_k)
         add("AD_DX", ad_k, "event")
+        if SNAPSHOT:                                           # 诊断之后每次访视都发"AD 状态"
+            for k in vis_years:
+                if k > ad_k and (death_k is None or k <= death_k):
+                    add("AD_DX", k, "event")
     if death_k is not None:
         add("DEATH", death_k, "death")
         for var, pre, kind, rule in spec.PATHOLOGY:
@@ -512,6 +541,7 @@ meta = {"vocab": VOCAB, "tok": TOK, "bg_range_preshift": [BG_START, BG_END],
         "nodedup_prefixes": list(NODEDUP),
         "no_global_dedup": NO_GLOBAL_DEDUP,
         "per_visit_events": PER_VISIT_EVENTS,
+        "snapshot": SNAPSHOT,
         "repeatable_token_prefixes": REPEATABLE_PREFIXES,
         # **实测**，不是声明：真正在这份 .bin 里对某个人出现过 >1 次的 token id。
         # 下游（figure2_eval/radc_delphi/vocab.py）优先读这一项，因为 rollout 的 no-repeat

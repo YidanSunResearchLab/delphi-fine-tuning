@@ -108,9 +108,9 @@ echo "--- [3/3] panels a-d + combined figure   (cohort: all)"
 
 echo
 echo "=== DONE -> $(pwd)/results/figure2/${FIG2_TAG:-}"
-echo "    combined figure : figure2_combined_matched.png / .pdf"
-echo "                      figure2_combined_allcohort.png / .pdf"
-echo "    panels          : fig2a_matched..fig2d_matched.{png,pdf}  (+ *_data.csv per panel)"
+echo "    combined figure : figure2_combined_matched.png"
+echo "                      figure2_combined_allcohort.png"
+echo "    panels          : fig2a_matched..fig2d_matched.png  (+ *_data.csv per panel)"
 echo "    metrics         : metrics_matched.json / metrics_allcohort.json + SUMMARY_*.md"
 echo
 echo "    READ ./README.md BEFORE QUOTING ANY OF IT -- the calibration rows of panel a are"

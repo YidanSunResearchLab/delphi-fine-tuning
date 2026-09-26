@@ -29,6 +29,7 @@ rsync -az \
   --exclude '__pycache__/' --exclude '*.pyc' --exclude '.DS_Store' \
   -e "ssh -o BatchMode=yes" \
   train.py model.py utils.py configurator.py evaluate_auc.py evaluate_auc_rosmap.py \
+  evaluate_auc_rosmap_controls.py test_auc_controls_equiv.py test_scope_mask.py figure3_panelA.py figure3_panelB.py \
   make_aux_labels.py test_heads_shapes.py test_getbatch_equiv.py utils_upstream_ref.py \
   "$HOST:$BASE/delphi/"
 rsync -az --delete --exclude '__pycache__/' -e "ssh -o BatchMode=yes" \
